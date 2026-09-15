@@ -34,12 +34,12 @@ def extract_and_merge_metadata(models: list[str]) -> dict:
         try:
             info = client.show(model)
             details = info.get("details", {})
-            model_info = info.get("model_info", {})
+            model_info = info.get("modelinfo", {}) or {}
 
-            # Context length 추출
+            # Context length 추출 (모델이 지원하는 최대 컨텍스트, GGUF 메타데이터 기준)
             context_length = next(
                 (v for k, v in model_info.items() if "context_length" in k),
-                "128,000 (GGUF Default)"
+                "확인 불가 (modelinfo에 context_length 키 없음)"
             )
 
             # VRAM (Byte -> MiB)

@@ -1,0 +1,16 @@
+{
+  "timestamp": "2026-09-15T07:04:04.505185+00:00",
+  "python_version": "3.12.13",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "ollama_client_host": "http://127.0.0.1:11434",
+  "ollama_package_version": "0.6.2",
+  "check_result": {
+    "check_success": true,
+    "error": null,
+    "doc_id": "DOC-02",
+    "model": "qwen2.5:7b",
+    "elapsed_sec": 7.072,
+    "was_model_preloaded": false,
+    "response": "{\n  \"summary_bullets\": [\n    \"모든 Python 프로젝트는 PEP8 규격 준수와 Ruff Linter 검사를 통과해야 함\",\n    \"신규 기능에 대한 단위 테스트 작성 및 전체 코드 커버리지 최소 80% 유지\",\n    \"Git Branch는 feature/{issue-id} 형식, Commit Message는 Conventional Commits 규격 준수\"\n  ],\n  \"categories\": [\"개발\"],\n  \"is_uncertain\": false,\n  \"tool_calls\": []\n}"
+  }
+}

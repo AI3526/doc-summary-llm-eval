@@ -51,7 +51,7 @@ def run_ollama_experiment(
 
     start_time = time.perf_counter()
     try:
-        # test.py 방식 그대로 format=RESPONSE_SCHEMA 적용
+        # 00_env_check.py 방식 그대로 format=RESPONSE_SCHEMA 적용
         response = client.chat(
             model=model_name,
             messages=[
@@ -71,10 +71,12 @@ def run_ollama_experiment(
 
         load_sec = round(load_duration_ns / 1e9, 4) if load_duration_ns else 0.0
 
+        tps_fail_reason = ""
         if eval_duration_ns and eval_duration_ns > 0 and eval_count:
             eval_tps = round(eval_count / (eval_duration_ns / 1e9), 2)
         else:
-            eval_tps = 0.0
+            eval_tps = ""
+            tps_fail_reason = "eval_duration<=0 또는 eval_count 없음: TPS 계산 불가"
 
         # VRAM 점유량 실시간 측정 (client.ps())
         ps_info = client.ps()
@@ -93,6 +95,8 @@ def run_ollama_experiment(
             "model_name": model_name,
             "doc_id": doc["doc_id"],
             "run_type": run_type,
+            "call_success": True,
+            "fail_reason": tps_fail_reason,
             "elapsed_sec": round(elapsed_sec, 4),
             "load_sec": load_sec,
             "eval_tps": eval_tps,
@@ -108,15 +112,17 @@ def run_ollama_experiment(
             "model_name": model_name,
             "doc_id": doc["doc_id"],
             "run_type": run_type,
-            "elapsed_sec": 0.0,
-            "load_sec": 0.0,
-            "eval_tps": 0.0,
-            "vram_mib": 0.0,
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "est_cost_usd": 0.0,
+            "call_success": False,
+            "fail_reason": f"API_ERROR: {str(e)}",
+            "elapsed_sec": "",
+            "load_sec": "",
+            "eval_tps": "",
+            "vram_mib": "",
+            "prompt_tokens": "",
+            "completion_tokens": "",
+            "est_cost_usd": "",
             "pydantic_valid": False,
-            "raw_response": f"ERROR: {str(e)}",
+            "raw_response": "",
         }
 
 
@@ -177,7 +183,7 @@ def main():
 
     # documents = [d for d in documents if d['doc_id'] in ['DOC-1', 'DOC-04', 'DOC-9']]
 
-    # test.py와 동일하게 타임아웃 180초 설정
+    # 00_env_check.py와 동일하게 타임아웃 180초 설정
     ollama_client = ollama.Client(host="http://127.0.0.1:11434", timeout=180)
 
     results = []
@@ -199,8 +205,7 @@ def main():
         results.append(warmup_res)
 
         # 본 실험 2회 반복 (총 20회)
-        # for repeat in range(1, 3):
-        for repeat in range(1, 2):
+        for repeat in range(1, 3):
             print(f"[{model_name}] 본 실험 반복 {repeat}/2 진행 중...")
             for doc in documents:
                 res = run_ollama_experiment(

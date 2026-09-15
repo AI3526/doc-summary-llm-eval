@@ -150,8 +150,31 @@ def evaluate_single_run(
                 name_match = set(gt_tool_names) == set(llm_tool_names)
                 scores["tool_name"] = (1.0 if name_match else 0.0) * tn_w
 
-                args_valid = all(len(tc.arguments) > 0 for tc in parsed_res.tool_calls)
-                scores["tool_args"] = (1.0 if args_valid else 0.0) * ta_w
+                # tool_name별 마지막 호출의 arguments를 기준으로 GT 인자값과 실제 일치 여부 비교
+                llm_args_by_name = {
+                    tc.tool_name: (tc.arguments or {}) for tc in parsed_res.tool_calls
+                }
+
+                def _args_match(expected: dict, actual: dict) -> bool:
+                    if not expected:
+                        return True
+                    if not actual:
+                        return False
+                    return all(
+                        str(actual.get(k, "")).strip().lower() == str(v).strip().lower()
+                        for k, v in expected.items()
+                    )
+
+                matched = sum(
+                    1
+                    for t in gt_tools
+                    if _args_match(
+                        t.get("arguments", {}),
+                        llm_args_by_name.get(t.get("tool_name"), {}),
+                    )
+                )
+                args_ratio = matched / len(gt_tools) if gt_tools else 0.0
+                scores["tool_args"] = round(args_ratio * ta_w, 4)
             else:
                 scores["tool_name"] = 0.0
                 scores["tool_args"] = 0.0
@@ -214,18 +237,30 @@ def main():
                 continue
 
             doc_id = row.get("doc_id", "")
-            raw_response = row.get("raw_response", "")
             doc_info = doc_map.get(doc_id, {})
-
-            eval_res = evaluate_single_run(raw_response, doc_id, doc_info, rubrics)
+            # 컬럼이 없는 과거 raw_benchmark.csv와의 호환을 위해 기본값은 성공(True)으로 간주
+            call_success = row.get("call_success", "True").strip().lower() != "false"
 
             record = {**row}
-            record["type_group"] = eval_res["type_group"]
-            record["category_f1"] = eval_res["category_f1"]
-            record["rouge_l_f1"] = eval_res["rouge_l_f1"]
-            record["quality_score"] = eval_res["total_score"]
-            record["score_breakdown"] = eval_res["detail_scores"]
-            record["pydantic_valid"] = eval_res["is_parsed"]
+
+            if not call_success:
+                # 호출 자체가 실패한 런: 품질 점수를 0으로 채우지 않고 채점에서 제외
+                type_group, _ = get_rubric_group(doc_id, rubrics)
+                record["type_group"] = type_group
+                record["category_f1"] = ""
+                record["rouge_l_f1"] = ""
+                record["quality_score"] = ""
+                record["score_breakdown"] = ""
+                record["pydantic_valid"] = False
+            else:
+                raw_response = row.get("raw_response", "")
+                eval_res = evaluate_single_run(raw_response, doc_id, doc_info, rubrics)
+                record["type_group"] = eval_res["type_group"]
+                record["category_f1"] = eval_res["category_f1"]
+                record["rouge_l_f1"] = eval_res["rouge_l_f1"]
+                record["quality_score"] = eval_res["total_score"]
+                record["score_breakdown"] = eval_res["detail_scores"]
+                record["pydantic_valid"] = eval_res["is_parsed"]
 
             evaluated_records.append(record)
 
@@ -250,44 +285,77 @@ def main():
             m = rec["model_name"]
             if m not in model_stats:
                 model_stats[m] = {
-                    "count": 0,
+                    "attempts": 0,
+                    "successes": 0,
+                    "n_quality": 0,
                     "total_score": 0.0,
                     "total_cat_f1": 0.0,
                     "total_rouge": 0.0,
                     "pydantic_pass": 0,
+                    "n_tps": 0,
                     "total_tps": 0.0,
+                    "n_sec": 0,
                     "total_sec": 0.0,
+                    "fail_samples": [],
                 }
+            s = model_stats[m]
+            s["attempts"] += 1
 
-            model_stats[m]["count"] += 1
-            model_stats[m]["total_score"] += float(rec["quality_score"])
-            model_stats[m]["total_cat_f1"] += float(rec["category_f1"])
-            model_stats[m]["total_rouge"] += float(rec["rouge_l_f1"])
-            if str(rec["pydantic_valid"]).lower() == "true":
-                model_stats[m]["pydantic_pass"] += 1
-            model_stats[m]["total_tps"] += float(rec.get("eval_tps", 0.0))
-            model_stats[m]["total_sec"] += float(rec.get("elapsed_sec", 0.0))
+            call_success = str(rec.get("call_success", "True")).strip().lower() != "false"
+            if not call_success:
+                if len(s["fail_samples"]) < 3:
+                    s["fail_samples"].append(
+                        f"{rec.get('doc_id', '?')}: {rec.get('fail_reason', '')}"
+                    )
+                continue
+            s["successes"] += 1
 
-        for model, stats in model_stats.items():
-            cnt = stats["count"]
-            avg_score = round(stats["total_score"] / cnt, 4) if cnt else 0.0
-            avg_cat_f1 = round(stats["total_cat_f1"] / cnt, 4) if cnt else 0.0
-            avg_rouge = round(stats["total_rouge"] / cnt, 4) if cnt else 0.0
-            pydantic_rate = (
-                round((stats["pydantic_pass"] / cnt) * 100, 2) if cnt else 0.0
-            )
-            avg_tps = round(stats["total_tps"] / cnt, 2) if cnt else 0.0
-            avg_sec = round(stats["total_sec"] / cnt, 2) if cnt else 0.0
+            if rec.get("quality_score", "") != "":
+                s["n_quality"] += 1
+                s["total_score"] += float(rec["quality_score"])
+                s["total_cat_f1"] += float(rec["category_f1"])
+                s["total_rouge"] += float(rec["rouge_l_f1"])
+                if str(rec["pydantic_valid"]).lower() == "true":
+                    s["pydantic_pass"] += 1
+
+            elapsed_raw = rec.get("elapsed_sec", "")
+            if elapsed_raw != "":
+                s["n_sec"] += 1
+                s["total_sec"] += float(elapsed_raw)
+
+            tps_raw = rec.get("eval_tps", "")
+            if tps_raw != "":
+                s["n_tps"] += 1
+                s["total_tps"] += float(tps_raw)
+            elif rec.get("fail_reason"):
+                if len(s["fail_samples"]) < 3:
+                    s["fail_samples"].append(
+                        f"{rec.get('doc_id', '?')}: {rec.get('fail_reason', '')}"
+                    )
+
+        for model, s in model_stats.items():
+            nq = s["n_quality"]
+            avg_score = round(s["total_score"] / nq, 4) if nq else None
+            avg_cat_f1 = round(s["total_cat_f1"] / nq, 4) if nq else None
+            avg_rouge = round(s["total_rouge"] / nq, 4) if nq else None
+            pydantic_rate = round((s["pydantic_pass"] / nq) * 100, 2) if nq else None
+            avg_tps = round(s["total_tps"] / s["n_tps"], 2) if s["n_tps"] else None
+            avg_sec = round(s["total_sec"] / s["n_sec"], 2) if s["n_sec"] else None
 
             print(f"\n📌 모델명: {model}")
-            print(f"  - 평균 카테고리 F1 Score: {avg_cat_f1:.4f}")
-            print(f"  - 요약문 ROUGE-L F1 Score: {avg_rouge:.4f}")
-            print(f"  - 종합 품질 점수 (Quality Score): {avg_score:.4f} / 1.0000")
+            print(f"  - 호출 성공 수 / 전체 시도 수: {s['successes']}/{s['attempts']}")
+            print(f"  - 평균 카테고리 F1 Score: {avg_cat_f1} (n={nq})")
+            print(f"  - 요약문 ROUGE-L F1 Score: {avg_rouge} (n={nq})")
+            print(f"  - 종합 품질 점수 (Quality Score): {avg_score} / 1.0000 (n={nq})")
             print(
-                f"  - Pydantic 스키마 준수율: {pydantic_rate}% ({stats['pydantic_pass']}/{cnt})"
+                f"  - Pydantic 스키마 준수율: {pydantic_rate}% ({s['pydantic_pass']}/{nq})"
             )
-            print(f"  - 평균 생성 속도 (TPS): {avg_tps} tokens/sec")
-            print(f"  - 평균 응답 시간 (Latency): {avg_sec} 초")
+            print(f"  - 평균 생성 속도 (TPS): {avg_tps} tokens/sec (n={s['n_tps']})")
+            print(f"  - 평균 응답 시간 (Latency): {avg_sec} 초 (n={s['n_sec']})")
+            if s["fail_samples"]:
+                print("  - 대표 실패/미측정 사례:")
+                for sample in s["fail_samples"]:
+                    print(f"      · {sample}")
 
 
 if __name__ == "__main__":
