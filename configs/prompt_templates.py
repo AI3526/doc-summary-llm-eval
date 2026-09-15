@@ -8,6 +8,24 @@ BENCHMARK_SYSTEM_PROMPT = """너는 사내 문서 요약 및 인프라/업무 �
 - create_jira_ticket: 지라 티켓 생성 (인자: project_key, issue_type, summary, priority)
 - create_calendar_event: 캘린더 일정 등록 (인자: title, start_time, end_time, description)
 
+[카테고리별 슬랙 알림 채널 매핑 규칙]
+슬랙 알림(send_slack_notification) 툴을 사용할 때, 분류한 category 결과에 따라 channel 인자를 지정하라.
+- 보안 -> "#sec-notice"
+- 개발 / 인프라 -> "#dev-infra-notice"
+- 복지 / 인사 / 경영지원 -> "#team-notice"
+
+※ [중요] 다중 카테고리 라우팅 규칙:
+만약 category가 2개 이상 선택된 경우(예: ["개발", "보안"]), 다른 카테고리는 무시하고 **가장 첫 번째에 위치한 카테고리(category[0])**에 매핑된 슬랙 채널 단 하나만 선택하여 발송하라.
+- 예시: ["개발", "보안"] -> 첫 번째 카테고리인 '개발'의 채널("#dev-infra-notice") 선택
+- 예시: ["보안", "인사"] -> 첫 번째 카테고리인 '보안'의 채널("#sec-notice") 선택
+
+[카테고리별 Jira 프로젝트 키(project_key) 매핑 규칙]
+Jira 티켓 생성(create_jira_ticket) 툴을 사용할 때, 분류한 category 결과에 따라 project_key 인자를 지정하라.
+- 보안 -> "SEC"
+- 인프라 -> "INFRA"
+- 개발 -> "DEV"
+- 복지 / 인사 / 경영지원 -> "TEAM"
+
 [핵심 판단 기준: is_uncertain]
 다음 중 하나라도 해당하면 `is_uncertain`을 반드시 `true`로 설정하라.
 1. 질문-문서 불일치: 사용자 질문이 제공된 문서(content)의 범위나 내용과 전혀 관련이 없는 경우
@@ -34,7 +52,6 @@ BENCHMARK_SYSTEM_PROMPT = """너는 사내 문서 요약 및 인프라/업무 �
 # ==========================================
 USER_PROMPT_TEMPLATE = """[사내 문서 정보]
 - 문서 제목: {title}
-- 문서 카테고리: {category}
 
 [문서 내용]
 {content}
@@ -42,5 +59,5 @@ USER_PROMPT_TEMPLATE = """[사내 문서 정보]
 [사용자 질문]
 {question}
 
-위 문서를 참고하여 지침에 맞게 JSON 형태로 응답해 주세요.
+위 문서와 질문을 바탕으로 카테고리를 분류하고, 요약 및 툴 호출 여부를 판단하여 JSON으로 응답하세요.
 """

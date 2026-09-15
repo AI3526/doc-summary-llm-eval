@@ -17,6 +17,8 @@ class ToolCallRequest(BaseModel):
         description="툴 호출에 필요한 인자(Arguments) 딕셔너리"
     )
 
+# 사전 정의된 카테고리 후보군
+CategoryType = Literal["복지", "인사", "개발", "경영지원", "보안", "인프라"]
 
 class SummaryResponse(BaseModel):
     """LLM이 최종 제출해야 하는 요약 및 툴 호출 응답 스키마"""
@@ -26,9 +28,11 @@ class SummaryResponse(BaseModel):
         max_items=3,
         description="본문 내용을 바탕으로 작성한 3줄 불릿포인트 요약 목록 (질문과 상관없는 문서이거나 정보가 없으면 ['제시된 문서에서 해당 질문에 대한 정보를 찾을 수 없습니다.'] 1줄만 작성.)"
     )
-    category: str = Field(
-        ..., 
-        description="문서의 주요 카테고리 (예: 보안, 인프라, 총무, 개발, 복지, 기타)"
+    categories: List[CategoryType] = Field(
+        ...,
+        min_items=1,
+        max_items=2,
+        description="문서 내용과 가장 관련 깊은 카테고리 1~2개 선택 (예: ['개발', '보안'])"
     )
     is_uncertain: bool = Field(
         ..., 

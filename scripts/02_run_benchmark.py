@@ -175,7 +175,7 @@ def run_ollama_experiment(
 def main():
     documents = load_documents()
 
-    documents = [d for d in documents if d['doc_id'] in ['DOC-09', 'DOC-10']]
+    # documents = [d for d in documents if d['doc_id'] in ['DOC-1', 'DOC-04', 'DOC-9']]
 
     # test.py와 동일하게 타임아웃 180초 설정
     ollama_client = ollama.Client(host="http://127.0.0.1:11434", timeout=180)
@@ -199,7 +199,8 @@ def main():
         results.append(warmup_res)
 
         # 본 실험 2회 반복 (총 20회)
-        for repeat in range(1, 3):
+        # for repeat in range(1, 3):
+        for repeat in range(1, 2):
             print(f"[{model_name}] 본 실험 반복 {repeat}/2 진행 중...")
             for doc in documents:
                 res = run_ollama_experiment(
