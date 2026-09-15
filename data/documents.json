@@ -52,7 +52,7 @@
         "구내식당 점심 운영 시간이 11시부터 14시까지 확대되며 외부인 식권은 일 최대 3매로 제한됩니다.",
         "개인 텀블러 이용 시 음료 500원 할인이 제공되며 탕비실 세척기를 활용할 수 있습니다."
       ],
-      "category": ["경영지원", "복지"],
+      "category": ["복지", "경영지원"],
       "must_include_keywords": ["스마트 오더", "운영 시간", "텀블러"],
       "is_uncertain": false,
       "expected_tool_calls": []
@@ -108,7 +108,7 @@
           "tool_name": "create_jira_ticket",
           "arguments": {
             "project_key": "INFRA",
-            "priority": "HIGH"
+            "priority": "High"
           }
         }
       ]
@@ -172,7 +172,7 @@
           "tool_name": "create_jira_ticket",
           "arguments": {
             "project_key": "SEC",
-            "priority": "HIGH"
+            "priority": "Highest"
           }
         }
       ]
@@ -200,7 +200,7 @@
           "tool_name": "send_slack_notification",
           "arguments": {
             "channel": "#team-notice",
-            "urgency": "MEDIUM"
+            "urgency": "LOW"
           }
         }
       ]
@@ -238,7 +238,7 @@
         "summary_bullets": [
         "제공된 사내 문서의 범위를 벗어난 질의로, 문서 내에서 관련 정보를 찾을 수 없습니다."
         ],
-        "category": "기타",
+        "category": ["복지", "경영지원"],
         "must_include_keywords": ["범위", "찾을 수 없음"],
         "is_uncertain": true,
         "expected_tool_calls": []

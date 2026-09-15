@@ -66,7 +66,7 @@ SLACK_TOOL_SCHEMA = {
                 },
                 "urgency": {
                     "type": "string",
-                    "enum": ["LOW", "MEDIUM", "HIGH"],
+                    "enum": ["LOW", "HIGH"],
                     "description": "알림 긴급도 수준"
                 }
             },
