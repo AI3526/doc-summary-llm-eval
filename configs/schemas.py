@@ -24,15 +24,15 @@ class SummaryResponse(BaseModel):
         ..., 
         min_items=1,
         max_items=3,
-        description="본문 내용을 바탕으로 작성한 3줄 불릿포인트 요약 목록 (DOC-10 등 거절 시 1줄 응답 가능)"
+        description="본문 내용을 바탕으로 작성한 3줄 불릿포인트 요약 목록 (질문과 상관없는 문서이거나 정보가 없으면 ['제시된 문서에서 해당 질문에 대한 정보를 찾을 수 없습니다.'] 1줄만 작성.)"
     )
     category: str = Field(
         ..., 
         description="문서의 주요 카테고리 (예: 보안, 인프라, 총무, 개발, 복지, 기타)"
     )
     is_uncertain: bool = Field(
-        default=False, 
-        description="본문의 정보가 누락/미정이거나, 질문이 문서 범위를 벗어난 경우 True로 설정"
+        ..., 
+        description="본문 내용이 확정되지 않은 안/논의 단계이거나, 사용자 질문이 문서 내용과 전혀 무관한 경우 반드시 True로 설정"
     )
     tool_calls: Optional[List[ToolCallRequest]] = Field(
         default=None, 

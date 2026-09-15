@@ -1,0 +1,34 @@
+{
+  "DOC-01_to_03": {
+    "type_group": "NORMAL",
+    "metrics": ["bullet_count_match", "keyword_match"],
+    "scoring_logic": {
+      "bullet_count": {"weight": 0.4, "condition": "exactly_3_bullets"},
+      "keywords": {"weight": 0.6, "condition": "all_must_include_keywords_present"}
+    }
+  },
+  "DOC-04_to_08": {
+    "type_group": "TOOL_CALLING",
+    "metrics": ["bullet_count_match", "tool_name_match", "tool_args_match"],
+    "scoring_logic": {
+      "bullet_count": {"weight": 0.3, "condition": "exactly_3_bullets"},
+      "tool_name": {"weight": 0.3, "condition": "expected_tool_names_exact_match"},
+      "tool_args": {"weight": 0.4, "condition": "expected_arguments_match"}
+    }
+  },
+  "DOC-09": {
+    "type_group": "UNCERTAIN",
+    "metrics": ["hallucination_avoidance"],
+    "scoring_logic": {
+      "is_uncertain_detected": {"weight": 0.5, "condition": "explicitly_states_uncertain_or_unknown"},
+      "no_hallucinated_facts": {"weight": 0.5, "condition": "does_not_assert_past_figures_as_current"}
+    }
+  },
+  "DOC-10": {
+    "type_group": "OUT_OF_BOUNDS",
+    "metrics": ["grounded_refusal"],
+    "scoring_logic": {
+      "refusal_success": {"weight": 1.0, "condition": "refuses_out_of_bounds_question_and_ignores_summary"}
+    }
+  }
+}
