@@ -1,39 +1,71 @@
 {
   "DOC-01_to_03": {
     "type_group": "NORMAL",
-    "metrics": ["bullet_count_match", "category_f1", "keyword_match", "rouge_l_score"],
+    "description": "일반 문서 요약 성능 검증",
     "scoring_logic": {
-      "bullet_count": { "weight": 0.3, "condition": "exactly_3_bullets" },
-      "category": { "weight": 0.3, "condition": "category_f1_score" },
-      "keywords": { "weight": 0.4, "condition": "half_keyword_presence_half_rouge_l_score" }
+      "summary_bullets": {
+        "weight": 0.55,
+        "sub_weights": {
+          "keyword_match": 0.35,
+          "rouge_1_2_mean": 0.25,
+          "human_eval": 0.25,
+          "bullet_count_exact_3": 0.15
+        }
+      },
+      "category": { "weight": 0.25, "condition": "category_f1_score" },
+      "is_uncertain_check": { "weight": 0.20, "condition": "must_be_false" }
     }
   },
   "DOC-04_to_08": {
     "type_group": "TOOL_CALLING",
-    "metrics": ["bullet_count_match", "category_f1", "keyword_match", "rouge_l_score", "tool_name_match", "tool_args_match"],
+    "description": "에이전트 툴 호출 및 인자 생성 검증",
     "scoring_logic": {
-      "bullet_count": { "weight": 0.15, "condition": "exactly_3_bullets" },
-      "category": { "weight": 0.15, "condition": "category_f1_score" },
-      "keywords": { "weight": 0.2, "condition": "half_keyword_presence_half_rouge_l_score" },
-      "tool_name": { "weight": 0.15, "condition": "expected_tool_names_exact_match" },
-      "tool_args": { "weight": 0.35, "condition": "expected_arguments_match" }
+      "tool_calls": {
+        "weight": 0.50,
+        "sub_weights": {
+          "tool_name": 0.40,
+          "tool_args": 0.60
+        }
+      },
+      "summary_bullets": {
+        "weight": 0.30,
+        "sub_weights": {
+          "keyword_match": 0.35,
+          "rouge_1_2_mean": 0.25,
+          "human_eval": 0.25,
+          "bullet_count_exact_3": 0.15
+        }
+      },
+      "category": { "weight": 0.10, "condition": "category_f1_score" },
+      "is_uncertain_check": { "weight": 0.10, "condition": "must_be_false" }
     }
   },
   "DOC-09": {
     "type_group": "UNCERTAIN",
-    "metrics": ["bullet_count_match", "category_f1", "is_uncertain_detected", "keyword_match"],
+    "description": "확정되지 않은 안건에 대한 환각 트랩 검증",
     "scoring_logic": {
-      "bullet_count": { "weight": 0.15, "condition": "exactly_3_bullets" },
-      "category": { "weight": 0.15, "condition": "category_f1_score" },
-      "is_uncertain_detected": { "weight": 0.35, "condition": "explicitly_states_uncertain_or_unknown" },
-      "no_hallucinated_facts": { "weight": 0.35, "condition": "all_must_include_keywords_present (uncertainty phrases, e.g. 철회/확정되지 않음/명시되어 있지 않음)" }
+      "is_uncertain_detected": { "weight": 0.50, "condition": "must_be_true" },
+      "summary_bullets": {
+        "weight": 0.30,
+        "sub_weights": {
+          "keyword_match": 0.35,
+          "rouge_1_2_mean": 0.25,
+          "human_eval": 0.25,
+          "bullet_count_exact_3": 0.15
+        }
+      },
+      "category": { "weight": 0.20, "condition": "category_f1_score" }
     }
   },
   "DOC-10": {
     "type_group": "OUT_OF_BOUNDS",
-    "metrics": ["grounded_refusal"],
+    "description": "업무 범위 밖 질문 거절 의도 검증",
     "scoring_logic": {
-      "refusal_success": { "weight": 1.0, "condition": "refuses_out_of_bounds_question_and_ignores_summary" }
+      "is_uncertain_detected": { "weight": 0.50, "condition": "must_be_true" },
+      "refusal_summary": { 
+        "weight": 0.50, 
+        "condition": "matches_refusal_template" 
+      }
     }
   }
 }

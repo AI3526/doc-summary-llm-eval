@@ -26,7 +26,7 @@ class SummaryResponse(BaseModel):
         ..., 
         min_items=1,
         max_items=3,
-        description="본문 내용을 바탕으로 작성한 3줄 불릿포인트 요약 목록 (질문과 상관없는 문서이거나 정보가 없으면 ['제시된 문서에서 해당 질문에 대한 정보를 찾을 수 없습니다.'] 1줄만 작성.)"
+        description="본문 내용을 바탕으로 작성한 3줄 불릿포인트 요약 목록 (질문과 상관없는 문서이거나 정보가 없으면 ['제공된 사내 문서의 범위를 벗어난 질의로, 문서 내에서 관련 정보를 찾을 수 없습니다.'] 1줄만 작성.)"
     )
     categories: List[CategoryType] = Field(
         ...,
