@@ -6,23 +6,27 @@
  ├── Tool Calls (함수명 및 인자 정확도) - 자동
  ├── Is Uncertain (환각 트랩/범위 초과 감지) - 자동
  └── Summary Bullets (요약 품질 필드)
-      ├── 키워드 매칭 (Keyword Match) ────── 35%
-      ├── Kiwi ROUGE-1,2 Mean ───────────── 25%
-      ├── 불릿 3개 준수 (Bullet Count) ───── 15%
-      └── 인간 평가 감점 (Human Eval) ────── 25% (감점 방식)
+      ├── 키워드 매칭 (Keyword Match) ────── 40%
+      ├── Kiwi ROUGE-1,2 Mean ───────────── 10%
+      ├── 불릿 3개 준수 (Bullet Count) ───── 20%
+      └── 인간 평가 감점 (Human Eval) ────── 30% (감점 방식)
 
 # 2. 요약 품질(summary_bullets) 세부 산출 로직
 요약 필드 내부 점수는 100점 만점으로 정규화된 4개 지표를 가중 합산하여 산출합니다.
 
 지표 구성 및 비중
-- 키워드 매칭 (35%): 하드 데이터(금액, 날짜, 조건 등) 필수 키워드 포함 비율 
-- Kiwi ROUGE-1,2 Mean (25%): kiwipiepy 형태소 분리 기반 N-gram 단어 포섭율
-- 인간 평가 감점 점수 (25%): 4가지 감점 체크리스트 기반 점수
-- 불릿 3개 자동 검증 (15%): 파이썬 len(summary_bullets) == 3 만족 시 100점, 미달/초과 시 0점
+- 키워드 매칭 (40%): 하드 데이터(금액, 날짜, 조건 등) 필수 키워드 포함 비율 
+- Kiwi ROUGE-1,2 Mean (10%): kiwipiepy 형태소 분리 기반 N-gram 단어 포섭율
+- 인간 평가 감점 점수 (30%): 4가지 감점 체크리스트 기반 점수
+- 불릿 3개 자동 검증 (20%): 파이썬 len(summary_bullets) == 3 만족 시 100점, 미달/초과 시 0점
+
+**ROUGE 비중을 낮춘 이유**: ROUGE는 GT와 표현(단어·문장 구조)이 다르면 내용이 맞거나 오히려 더 충실해도 점수가 낮게 나오는 구조적 한계가 있다(패러프레이징에 취약). 실제로 DOC-01에서 GT보다 더 상세하고 정확한 요약이 문장 구조가 달라 ROUGE는 더 낮게 나온 사례가 확인됐다 — 즉 모델 간 상대 비교 용도로도 완전히 신뢰하기 어렵다. ROUGE가 노리던 "내용이 잘 전달됐는가"는 keyword_match(하드 데이터 포함 여부)와 human_eval(환각·사실 오류·언어·가독성 체크)이 더 직접적으로 담당하므로, ROUGE는 보조 지표로 비중을 25%→10%로 낮추고 그만큼을 keyword_match·human_eval·불릿 검증에 나눠 배분했다. 그럼에도 ROUGE 절대값 자체를 "품질 몇 점"으로 해석하지는 않는다.
 
 
 # 3. 인간 평가 감점 체계 (Penalty Rubric)
 인간 평가자는 점수를 직접 매기지 않고, 발견된 오류 항목에 체크(1)만 수행합니다. 기본 100점에서 차감되며 최저 점수는 0점 처리됩니다.
+
+**검토 범위**: human_eval은 rubrics.json 구조상 summary_bullets 하위 지표로 반영되지만, 평가자는 summary_bullets 텍스트만이 아니라 **raw_response 전체(tool_calls 인자 포함)를 읽고 P1~P4를 체크**합니다. 예를 들어 Jira 티켓 생성 인자(issue_type, summary 등)에 중국어/영어가 섞여 나오는 경우도 P3(err_language) 대상입니다.
 
 $$\text{Human Eval Score} = \max(0, 100 - \sum \text{Penalties})$$
 
@@ -42,12 +46,12 @@ P4 | 가독성/어색함 (err_readability) | -15점 | 문맥 단절, 비문, 동
 범위 초과 (OUT OF BOUNDS) | DOC 10 | 답변 거절 및 환각 방지 | 불확실성 감지 (50%) + 거절 요약문 일치도 (50%)
 
 # 5. 입력용 CSV 파일 구조 (human_eval.csv)
-평가자는 엑셀에서 아래 템플릿의 err_* 컬럼에 오류 발생 시 1, 정상 시 0을 기입합니다.
+평가자는 엑셀에서 아래 템플릿의 err_* 컬럼에 오류 발생 시 1, 정상 시 0을 기입합니다. rep_id는 반복 회차(MAIN_1→1, MAIN_2→2)를 뜻하며, 회차별로 별도 행에 채점합니다.
 ```
-doc_id,model_name,err_hallucination,err_fact_data,err_language,err_readability,evaluator_note
-DOC-01,Qwen2.5-7B,0,0,0,0,정상 작성됨 (100점)
-DOC-02,Qwen2.5-7B,0,1,0,0,경조금 수치 오류 발생 (-25점 -> 75점)
-DOC-04,Model_B,0,0,1,1,중국어 출력 및 가독성 불량 (-40점 -> 60점)
+model_name,doc_id,rep_id,err_hallucination,err_fact_data,err_language,err_readability,evaluator_note
+qwen2.5:7b,DOC-01,1,0,0,0,0,정상 작성됨 (100점)
+qwen2.5:7b,DOC-02,1,0,1,0,0,경조금 수치 오류 발생 (-25점 -> 75점)
+qwen2.5:7b,DOC-05,1,0,0,1,0,Jira 인자(issue_type/summary)에 중국어 텍스트 혼입 -> 언어 오출력 (-25점 -> 75점)
 ```
 
 # 6.사용 지표

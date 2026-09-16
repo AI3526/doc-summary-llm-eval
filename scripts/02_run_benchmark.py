@@ -1,11 +1,13 @@
 import csv
 import json
 import os
+import sys
 import time
 from pathlib import Path
 
 import ollama
-# from openai import OpenAI  # 클라우드 테스트 시 주석 해제
+from dotenv import load_dotenv
+from openai import OpenAI
 
 from configs.prompt_templates import (
     BENCHMARK_SYSTEM_PROMPT,
@@ -13,13 +15,22 @@ from configs.prompt_templates import (
 )
 from configs.schemas import SummaryResponse, RESPONSE_SCHEMA
 
+load_dotenv()
+
 # 1. 파일 경로 및 실험 설정
 DOCUMENTS_PATH = "data/documents.json"
 OUTPUT_CSV_PATH = "results/raw_benchmark.csv"
+CLOUD_OUTPUT_CSV_PATH = "results/raw_benchmark_cloud.csv"
 
 LOCAL_MODELS = ["qwen2.5:7b", "llama3.1:8b"]
-# CLOUD_MODEL = "gpt-4o-mini"
-# CLOUD_DOC_IDS = ["DOC-01", "DOC-04", "DOC-07", "DOC-09", "DOC-10"]
+CLOUD_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+CLOUD_DOC_IDS = ["DOC-01", "DOC-04", "DOC-07", "DOC-09", "DOC-10"]
+
+# gpt-5.6-luna 단가 (Prices per 1M tokens, short-context 기준 — 이 벤치마크의 문서/질문은
+# 짧은 문서(약 500~1200자) + 시스템 프롬프트 수준이라 long-context 구간에 해당하지 않는다)
+CLOUD_INPUT_PRICE_PER_1M = 0.20
+CLOUD_CACHED_INPUT_PRICE_PER_1M = 0.02
+CLOUD_OUTPUT_PRICE_PER_1M = 1.20
 
 
 def load_documents() -> list[dict]:
@@ -126,71 +137,103 @@ def run_ollama_experiment(
 
 
 # ==========================================
-# Cloud API 실험 함수 (필요 시 주석 해제)
+# Cloud API 실험 함수
 # ==========================================
-# def run_cloud_experiment(client: OpenAI, model_name: str, doc: dict) -> dict:
-#     user_content = USER_PROMPT_TEMPLATE.format(
-#         title=doc.get("title", ""),
-#         category=doc.get("category", ""),
-#         content=doc.get("content", ""),
-#         question=doc.get("question", "")
-#     )
-#     start_time = time.perf_counter()
-#     try:
-#         response = client.chat.completions.create(
-#             model=model_name,
-#             messages=[
-#                 {"role": "system", "content": BENCHMARK_SYSTEM_PROMPT},
-#                 {"role": "user", "content": user_content}
-#             ],
-#             response_format={"type": "json_object"},
-#             temperature=0
-#         )
-#         elapsed_sec = time.perf_counter() - start_time
-#         prompt_tokens = response.usage.prompt_tokens if response.usage else 0
-#         completion_tokens = response.usage.completion_tokens if response.usage else 0
-#         raw_response = response.choices[0].message.content or ""
+def run_cloud_experiment(client: OpenAI, model_name: str, doc: dict) -> dict:
+    user_content = USER_PROMPT_TEMPLATE.format(
+        title=doc.get("title", ""),
+        content=doc.get("content", ""),
+        question=doc.get("question", ""),
+    )
 
-#         return {
-#             "model_name": model_name,
-#             "doc_id": doc["doc_id"],
-#             "run_type": "CLOUD_MAIN",
-#             "elapsed_sec": round(elapsed_sec, 4),
-#             "load_sec": 0.0,
-#             "eval_tps": round(completion_tokens / elapsed_sec, 2) if elapsed_sec > 0 else 0.0,
-#             "vram_mib": "N/A (Cloud)",
-#             "prompt_tokens": prompt_tokens,
-#             "completion_tokens": completion_tokens,
-#             "est_cost_usd": round((prompt_tokens * 0.00015 / 1000) + (completion_tokens * 0.00060 / 1000), 6),
-#             "pydantic_valid": validate_pydantic_response(raw_response),
-#             "raw_response": raw_response.replace("\n", " ")
-#         }
-#     except Exception as e:
-#         return {
-#             "model_name": model_name,
-#             "doc_id": doc["doc_id"],
-#             "run_type": "CLOUD_MAIN",
-#             "elapsed_sec": 0.0, "load_sec": 0.0, "eval_tps": 0.0,
-#             "vram_mib": "N/A (Cloud)", "prompt_tokens": 0, "completion_tokens": 0,
-#             "est_cost_usd": 0.0, "pydantic_valid": False,
-#             "raw_response": f"ERROR: {str(e)}"
-#         }
+    start_time = time.perf_counter()
+    try:
+        # ToolCallRequest.arguments가 자유 형식 dict라 OpenAI strict 모드가 요구하는
+        # "모든 object에 additionalProperties: false" 조건을 못 맞춰서 strict=False로 호출한다.
+        response = client.responses.create(
+            model=model_name,
+            instructions=BENCHMARK_SYSTEM_PROMPT,
+            input=user_content,
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "SummaryResponse",
+                    "schema": RESPONSE_SCHEMA,
+                    "strict": False,
+                }
+            },
+            reasoning={"effort": "none"},
+            max_output_tokens=512,
+            tools=[],
+            tool_choice="none",
+            store=False,
+        )
+        elapsed_sec = time.perf_counter() - start_time
+
+        usage = response.usage
+        prompt_tokens = usage.input_tokens if usage else 0
+        completion_tokens = usage.output_tokens if usage else 0
+        cached_tokens = (
+            usage.input_tokens_details.cached_tokens
+            if usage and usage.input_tokens_details and usage.input_tokens_details.cached_tokens
+            else 0
+        )
+        billed_input_tokens = prompt_tokens - cached_tokens
+
+        eval_tps = round(completion_tokens / elapsed_sec, 2) if elapsed_sec > 0 else 0.0
+
+        est_cost_usd = round(
+            (billed_input_tokens * CLOUD_INPUT_PRICE_PER_1M / 1_000_000)
+            + (cached_tokens * CLOUD_CACHED_INPUT_PRICE_PER_1M / 1_000_000)
+            + (completion_tokens * CLOUD_OUTPUT_PRICE_PER_1M / 1_000_000),
+            6,
+        )
+
+        raw_response = response.output_text or ""
+        # 출력이 max_output_tokens 등으로 중간에 끊긴 경우 호출 자체는 성공이지만 참고용으로 남김
+        status_note = "" if response.status == "completed" else f"non_completed_status:{response.status}"
+
+        return {
+            "model_name": model_name,
+            "doc_id": doc["doc_id"],
+            "run_type": "CLOUD_MAIN",
+            "call_success": True,
+            "fail_reason": status_note,
+            "elapsed_sec": round(elapsed_sec, 4),
+            "load_sec": 0.0,
+            "eval_tps": eval_tps,
+            "vram_mib": "N/A (Cloud)",
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "est_cost_usd": est_cost_usd,
+            "pydantic_valid": validate_pydantic_response(raw_response),
+            "raw_response": raw_response.replace("\n", " "),
+        }
+    except Exception as e:
+        return {
+            "model_name": model_name,
+            "doc_id": doc["doc_id"],
+            "run_type": "CLOUD_MAIN",
+            "call_success": False,
+            "fail_reason": f"API_ERROR: {str(e)}",
+            "elapsed_sec": "",
+            "load_sec": "",
+            "eval_tps": "",
+            "vram_mib": "N/A (Cloud)",
+            "prompt_tokens": "",
+            "completion_tokens": "",
+            "est_cost_usd": "",
+            "pydantic_valid": False,
+            "raw_response": "",
+        }
 
 
-def main():
-    documents = load_documents()
-
-    # documents = [d for d in documents if d['doc_id'] in ['DOC-1', 'DOC-04', 'DOC-9']]
-
-    # 00_env_check.py와 동일하게 타임아웃 180초 설정
+def run_local_experiments(documents: list[dict]) -> list[dict]:
+    """로컬 모델 실험 (2개 모델 x 10개 문서 x 2회 = 40회 + 워밍업 2회)"""
     ollama_client = ollama.Client(host="http://127.0.0.1:11434", timeout=180)
-
     results = []
     run_counter = 1
 
-    # ==========================================
-    # 1. 로컬 모델 실험 (2개 모델 x 10개 문서 x 2회 = 40회 + 워밍업 2회)
-    # ==========================================
     print("🚀 로컬 Ollama 벤치마크 실험 시작...")
     for model_name in LOCAL_MODELS:
         print(f"\n---> 모델 준비 중: {model_name}")
@@ -218,34 +261,63 @@ def main():
                 )
                 run_counter += 1
 
-    # ==========================================
-    # 2. Cloud API 비교 실험 (나중에 주석 해제하여 사용)
-    # ==========================================
-    # print("\n☁️ Cloud API 비교 실험 시작...")
-    # api_key = os.getenv("OPENAI_API_KEY")
-    # if api_key:
-    #     openai_client = OpenAI(api_key=api_key)
-    #     cloud_docs = [d for d in documents if d["doc_id"] in CLOUD_DOC_IDS]
-    #     for doc in cloud_docs:
-    #         res = run_cloud_experiment(openai_client, CLOUD_MODEL, doc)
-    #         res["run_id"] = f"run_{run_counter:03d}"
-    #         results.append(res)
-    #         print(f"  - [{res['run_id']}] Cloud {doc['doc_id']} 완료 ({res['elapsed_sec']}s)")
-    #         run_counter += 1
+    return results
 
-    # ==========================================
-    # 3. CSV 파일 저장
-    # ==========================================
-    Path(OUTPUT_CSV_PATH).parent.mkdir(parents=True, exist_ok=True)
-    if results:
-        fieldnames = list(results[0].keys())
-        with open(OUTPUT_CSV_PATH, "w", encoding="utf-8", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerows(results)
 
+def run_cloud_experiments(documents: list[dict]) -> list[dict]:
+    """Cloud API 비교 실험 (README STEP7: 공통 질문 5개, 각 1회)"""
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        print("⚠️ OPENAI_API_KEY가 설정되지 않아 Cloud 실험을 건너뜁니다.")
+        return []
+
+    openai_client = OpenAI(api_key=api_key)
+    cloud_docs = [d for d in documents if d["doc_id"] in CLOUD_DOC_IDS]
+    results = []
+
+    print(f"\n☁️ Cloud API({CLOUD_MODEL}) 비교 실험 시작...")
+    for i, doc in enumerate(cloud_docs, start=1):
+        res = run_cloud_experiment(openai_client, CLOUD_MODEL, doc)
+        res["run_id"] = f"cloud_run_{i:03d}"
+        results.append(res)
+        print(
+            f"  - [{res['run_id']}] Cloud {doc['doc_id']} 완료 ({res['elapsed_sec']}s, call_success={res['call_success']})"
+        )
+
+    return results
+
+
+def write_csv(path: str, rows: list[dict]) -> None:
+    if not rows:
+        return
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = list(rows[0].keys())
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def main():
+    documents = load_documents()
+
+    # documents = [d for d in documents if d['doc_id'] in ['DOC-1', 'DOC-04', 'DOC-9']]
+
+    run_local = "--cloud-only" not in sys.argv
+    run_cloud = "--local-only" not in sys.argv
+
+    if run_local:
+        local_results = run_local_experiments(documents)
+        write_csv(OUTPUT_CSV_PATH, local_results)
         print(f"\n✅ 로컬 메인 실험 완료! 저장 경로: {OUTPUT_CSV_PATH}")
-        print(f"총 레코드 수: {len(results)}건 (워밍업 포함)")
+        print(f"총 레코드 수: {len(local_results)}건 (워밍업 포함)")
+
+    if run_cloud:
+        cloud_results = run_cloud_experiments(documents)
+        write_csv(CLOUD_OUTPUT_CSV_PATH, cloud_results)
+        if cloud_results:
+            print(f"\n✅ Cloud 비교 실험 완료! 저장 경로: {CLOUD_OUTPUT_CSV_PATH}")
+            print(f"총 레코드 수: {len(cloud_results)}건")
 
 
 if __name__ == "__main__":
