@@ -25,7 +25,6 @@ target_doc = documents[1]
 # 2. 유저 프롬프트 조립
 user_content = USER_PROMPT_TEMPLATE.format(
     title=target_doc["title"],
-    category=target_doc["category"],
     content=target_doc["content"],
     question=target_doc["question"]
 )

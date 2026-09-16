@@ -128,14 +128,23 @@ def evaluate_single_run(
         scores["keywords_and_rouge"] = round(quality_content_score * k_w, 4)
 
     elif type_group == "TOOL_CALLING":
-        b_w = scoring_logic.get("bullet_count", {}).get("weight", 0.2)
+        b_w = scoring_logic.get("bullet_count", {}).get("weight", 0.15)
         scores["bullet_count"] = (1.0 if is_parsed and len(llm_bullets) == 3 else 0.0) * b_w
 
-        c_w = scoring_logic.get("category", {}).get("weight", 0.2)
+        c_w = scoring_logic.get("category", {}).get("weight", 0.15)
         scores["category"] = round(cat_f1_score * c_w, 4)
 
-        tn_w = scoring_logic.get("tool_name", {}).get("weight", 0.2)
-        ta_w = scoring_logic.get("tool_args", {}).get("weight", 0.4)
+        # Keywords & Content Quality using ROUGE-L + Must Keywords (NORMAL 그룹과 동일한 방식)
+        k_w = scoring_logic.get("keywords", {}).get("weight", 0.2)
+        must_keywords = gt.get("must_include_keywords", [])
+        llm_full_text = " ".join(llm_bullets)
+        keyword_pass = all(kw in llm_full_text for kw in must_keywords) if must_keywords else True
+
+        quality_content_score = (0.5 * (1.0 if keyword_pass else 0.0)) + (0.5 * rouge_l_score)
+        scores["keywords_and_rouge"] = round(quality_content_score * k_w, 4)
+
+        tn_w = scoring_logic.get("tool_name", {}).get("weight", 0.15)
+        ta_w = scoring_logic.get("tool_args", {}).get("weight", 0.35)
 
         gt_tools = gt.get("expected_tool_calls", [])
         has_tools = is_parsed and parsed_res.tool_calls and len(parsed_res.tool_calls) > 0

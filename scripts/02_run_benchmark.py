@@ -44,7 +44,6 @@ def run_ollama_experiment(
     # prompt_templates.py의 템플릿 적용
     user_content = USER_PROMPT_TEMPLATE.format(
         title=doc.get("title", ""),
-        category=doc.get("category", ""),
         content=doc.get("content", ""),
         question=doc.get("question", ""),
     )
