@@ -1,16 +1,61 @@
 {
-  "timestamp": "2026-09-15T07:04:04.505185+00:00",
-  "python_version": "3.12.13",
-  "platform": "Windows-11-10.0.26200-SP0",
-  "ollama_client_host": "http://127.0.0.1:11434",
-  "ollama_package_version": "0.6.2",
-  "check_result": {
-    "check_success": true,
-    "error": null,
-    "doc_id": "DOC-02",
-    "model": "qwen2.5:7b",
-    "elapsed_sec": 7.072,
-    "was_model_preloaded": false,
-    "response": "{\n  \"summary_bullets\": [\n    \"모든 Python 프로젝트는 PEP8 규격 준수와 Ruff Linter 검사를 통과해야 함\",\n    \"신규 기능에 대한 단위 테스트 작성 및 전체 코드 커버리지 최소 80% 유지\",\n    \"Git Branch는 feature/{issue-id} 형식, Commit Message는 Conventional Commits 규격 준수\"\n  ],\n  \"categories\": [\"개발\"],\n  \"is_uncertain\": false,\n  \"tool_calls\": []\n}"
-  }
+  "timestamp": "2026-09-17T01:39:37.922145+00:00",
+  "hardware_and_environment": {
+    "python_version": "3.12.13",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "ollama_package_version": "0.6.2",
+    "pytorch_version": "2.14.0+cpu",
+    "gpu_info": {
+      "cuda_available": false,
+      "gpu_name": "CPU Only / CUDA Not Detected",
+      "vram_total_gb": "0 GB"
+    }
+  },
+  "execution_config": {
+    "ollama_client_host": "http://127.0.0.1:11434",
+    "timeout": 180,
+    "generation_options": {
+      "temperature": 0,
+      "num_predict": 512
+    },
+    "target_doc_id": "DOC-02"
+  },
+  "summary_checks": {
+    "all_cli_passed": true,
+    "all_python_api_passed": true
+  },
+  "benchmark_results": [
+    {
+      "model": "qwen2.5:7b",
+      "python_api_success": true,
+      "error": null,
+      "elapsed_sec": 2.3823,
+      "was_model_preloaded": true,
+      "allocated_vram_gb": "4.42 GB",
+      "cli_check": {
+        "cli_check_success": true,
+        "cli_elapsed_sec": 31.0183,
+        "response_length": 273,
+        "cli_response_sample": "```json\n{\n  \"is_uncertain\": false,\n  \"summary_bullets\": [\n    \"모든 Python 프로젝트는 PEP8 규격 준수와 Ruff Linter 검사 필수\",\n    \"신규 기능 작성 시 Unit Test 의무화 및 전체 코드 커",
+        "error_detail": null
+      },
+      "response": "{\n  \"summary_bullets\": [\n    \"모든 Python 프로젝트는 PEP8 규격 준수와 Ruff Linter 검사를 통과해야 함\",\n    \"신규 기능 작성 시 Unit Test 작성 의무화 및 전체 코드 커버리지 최소 80% 유지\",\n    \"Git Branch는 feature/{issue-id} 형식, Commit Message는 Conventional Commits 규격 준수\"\n  ],\n  \"categories\": [\"개발\"],\n  \"is_uncertain\": false,\n  \"tool_calls\": []\n}"
+    },
+    {
+      "model": "llama3.1:8b",
+      "python_api_success": true,
+      "error": null,
+      "elapsed_sec": 2.7158,
+      "was_model_preloaded": true,
+      "allocated_vram_gb": "4.91 GB",
+      "cli_check": {
+        "cli_check_success": true,
+        "cli_elapsed_sec": 20.2332,
+        "response_length": 1018,
+        "cli_response_sample": "**응답**\n\n```\n{\n  \"summary_bullets\": [\n    \"모든 Python 프로젝트는 PEP8 규격을 준수해야 하며, commit 전 Ruff Linte\u001b[5D\u001b[K\nLinter 검사를 반드시 통과해야 합니다.\",\n    \"신규 작성되는 기능에 대해 ",
+        "error_detail": null
+      },
+      "response": "{ \"summary_bullets\": [\"\\u2026\\n* 코드 작성 표준: PEP8 규격 준수, Ruff Linter 검사 통과\\n* 테스트 코드 작성: 단위 테스트 의무화, 전체 코드 커버리지 80% 이상 유지\\n* Git Branch 전략: feature/{issue-id} 형식, Conventional Commits 규격 준수\\n* 배포 가이드라인: 스테이징 환경 QA 승인, 사내 배포 Portal 통한 배포\"], \"categories\": [\"개발\"], \"is_uncertain\": false, \"tool_calls\": [] }"
+    }
+  ]
 }
