@@ -47,6 +47,42 @@ def validate_pydantic_response(raw_text: str) -> bool:
         return False
 
 
+GENERATION_OPTIONS = {"temperature": 0, "num_predict": 512, "seed": 42}
+
+
+def get_runtime_load_state(client: ollama.Client, model_name: str) -> dict:
+    """README STEP6 '실행 조건'(digest, quantization_level, 실제 context_length, CPU/GPU 적재 상태)을
+    client.ps() 한 번으로 전부 조회한다."""
+    ps_info = client.ps()
+    m = next((m for m in ps_info.models if m.model == model_name), None)
+    if m is None:
+        return {
+            "digest": "N/A",
+            "quantization_level": "N/A",
+            "context_length": "N/A",
+            "vram_mib": "N/A",
+            "gpu_offload_status": "N/A (미적재)",
+        }
+
+    size_vram = m.size_vram or 0
+    size_total = m.size or 0
+    vram_mib = round(size_vram / (1024 * 1024), 2) if size_vram else "N/A"
+
+    if size_total > 0:
+        offload_pct = round(size_vram / size_total * 100)
+        gpu_offload_status = "100% GPU" if offload_pct >= 100 else f"{offload_pct}% GPU"
+    else:
+        gpu_offload_status = "N/A"
+
+    return {
+        "digest": m.digest or "N/A",
+        "quantization_level": (m.details.quantization_level if m.details else None) or "N/A",
+        "context_length": m.context_length if m.context_length is not None else "N/A",
+        "vram_mib": vram_mib,
+        "gpu_offload_status": gpu_offload_status,
+    }
+
+
 def run_ollama_experiment(
     client: ollama.Client, model_name: str, doc: dict, is_warmup: bool = False
 ) -> dict:
@@ -70,7 +106,7 @@ def run_ollama_experiment(
             ],
             format=RESPONSE_SCHEMA,
             stream=False,
-            options={"temperature": 0, "num_predict": 512},
+            options=GENERATION_OPTIONS,
         )
         elapsed_sec = time.perf_counter() - start_time
 
@@ -82,20 +118,17 @@ def run_ollama_experiment(
         load_sec = round(load_duration_ns / 1e9, 4) if load_duration_ns else 0.0
 
         tps_fail_reason = ""
-        if eval_duration_ns and eval_duration_ns > 0 and eval_count:
-            eval_tps = round(eval_count / (eval_duration_ns / 1e9), 2)
-        else:
+        if not eval_count:
             eval_tps = ""
-            tps_fail_reason = "eval_duration<=0 또는 eval_count 없음: TPS 계산 불가"
+            tps_fail_reason = "eval_count=0 (토큰 생성 0개): TPS 계산 불가"
+        elif not eval_duration_ns or eval_duration_ns <= 0:
+            eval_tps = ""
+            tps_fail_reason = "eval_duration<=0 또는 누락: TPS 계산 불가"
+        else:
+            eval_tps = round(eval_count / (eval_duration_ns / 1e9), 2)
 
-        # VRAM 점유량 실시간 측정 (client.ps())
-        ps_info = client.ps()
-        vram_bytes = next(
-            (m.size_vram for m in ps_info.models if m.model == model_name), 0
-        )
-        vram_mib = (
-            round(vram_bytes / (1024 * 1024), 2) if vram_bytes else "N/A"
-        )
+        # 실행 조건 일괄 조회 (VRAM 포함, client.ps() 1회)
+        runtime_state = get_runtime_load_state(client, model_name)
 
         raw_response = response["message"]["content"]
         # Pydantic 엄격 검증 수행
@@ -110,11 +143,16 @@ def run_ollama_experiment(
             "elapsed_sec": round(elapsed_sec, 4),
             "load_sec": load_sec,
             "eval_tps": eval_tps,
-            "vram_mib": vram_mib,
+            "vram_mib": runtime_state["vram_mib"],
             "prompt_tokens": response.get("prompt_eval_count", 0),
             "completion_tokens": eval_count,
             "est_cost_usd": 0.0,
             "pydantic_valid": pydantic_valid,
+            "digest": runtime_state["digest"],
+            "quantization_level": runtime_state["quantization_level"],
+            "context_length": runtime_state["context_length"],
+            "generation_options": json.dumps(GENERATION_OPTIONS),
+            "gpu_offload_status": runtime_state["gpu_offload_status"],
             "raw_response": raw_response.replace("\n", " "),
         }
     except Exception as e:
@@ -132,6 +170,11 @@ def run_ollama_experiment(
             "completion_tokens": "",
             "est_cost_usd": "",
             "pydantic_valid": False,
+            "digest": "",
+            "quantization_level": "",
+            "context_length": "",
+            "generation_options": json.dumps(GENERATION_OPTIONS),
+            "gpu_offload_status": "",
             "raw_response": "",
         }
 
