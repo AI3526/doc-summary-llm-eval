@@ -1,212 +1,96 @@
-# [프로젝트 개요]
-## 1. 프로젝트 개요
-서비스 상황을 정하고, 로컬 LLM 2개를 Ollama로 실행·비교한 뒤 적합한 모델 1개를 선정합니다. Cloud API 모델 1개에는 공통 질문 일부를 적용해 실제 운영 방식도 검토합니다.
+# doc-summary-llm-eval
 
-## 2. 제출 방식
-GitHub 저장소 하나에 실행 코드, 환경 정보, 실험 기록, 비교표, 최종 선정 근거를 함께 제출
+사내 한국어 문서 요약 + 업무 툴 호출(Slack/Jira/Calendar) 어시스턴트 용도로 로컬 LLM 2개(`qwen2.5:7b`, `llama3.1:8b`)를 직접 비교해 1개를 선정하고, Cloud API 모델(`gpt-5.6-luna`)과도 소규모로 비교합니다.
 
-## 3. 필수 제출 목록
-사용 사례와 요구사항 정의, Hugging Face 모델 정보 조사, 서로 다른 로컬 모델 2개 실행, 동일 질문 기반 품질·성능 비교, 소규모 Local–Cloud 비교, 모델 선정과 발표
+## 결과 요약
 
-## 4. Use Case
-특정 Use Case에 맞는 오픈소스 LLM 후보를 탐색하고, 실행·평가 결과를 바탕으로 모델을 선정합니다. 완성형 챗봇, 웹 UI, 웹서버, 배포, Vector DB, 검색·RAG 구현은 필수 산출물에 포함하지 않습니다. 문서 요약이나 문서 질의응답을 선택한 경우 공개·가상 문서를 프롬프트에 직접 제공하는 범위로 수행합니다.
+| 모델 | Quality Score | 카테고리 | ROUGE-1,2 | 평균 응답시간 | VRAM |
+|---|---|---|---|---|---|
+| **qwen2.5:7b (최종 선정)** | **0.712** | 0.593 | 0.410 | 4.09s | 4528 MiB |
+| llama3.1:8b | 0.662 | 0.741 | 0.383 | 3.27s | 5027 MiB |
+| gpt-5.6-luna (Cloud, 참고용) | 0.885 | 0.792 | 0.416 | 2.72s | N/A (Cloud) |
 
-## 5. 모델 후보 조사 항목
-- Model Name, Parameter Size, License, Context Length, Tokenizer, Chat Template, Quantization, Architecture, Language, Benchmark, VRAM 요구량 등
+**최종 선정: `qwen2.5:7b`** — 1순위 우선순위 지표(Quality Score)에서 우위이고, 응답 시간도 허용 범위(4~7초) 이내입니다. Cloud가 정량 지표상 더 높지만, 사내 문서를 외부로 보내지 않는 로컬 실행을 우선하기로 한 결정에 따라 최종 운영 모델에서는 제외했습니다. 선정 과정과 대표 실패 사례 등 상세 근거는 [results.md](results.md)에 있습니다.
 
-## 6. 로컬 모델 품질·성능 측정
-로컬 모델 2개 × 질문 10개 × 질문별 2회 = 모델당 본 실험 20회**를 수행합니다. 모델당 워밍업 1회는 본 비교 집계에서 분리합니다.
-- Quality, Instruction Following, 한국어 품질
-- Performance : 전체 응답 시간, 모델 로딩 시간, 토큰 생성 속도, VRAM 사용량 등
+## 사전 준비물
 
-## 7. Open-source LLM vs Cloud API 비교
-Cloud API 모델 1개에 STEP 5에서 미리 정한 공통 질문 5개를 각각 1회 적용합니다. 로컬 모델은 동일 질문을 2회 수행하므로 반복 수 차이를 표시하고, 로컬의 좋은 결과 한 건만 골라 비교하지 않습니다.
-- Quality, Latency, Cost, Security, Infrastructure / Operations, Customization
+- Python 3.12, [uv](https://docs.astral.sh/uv/)
+- [Ollama](https://ollama.com/) 설치 + 벤치마크 대상 모델 pull
+  ```bash
+  ollama pull qwen2.5:7b
+  ollama pull llama3.1:8b
+  ```
+- NVIDIA GPU + 드라이버 (`nvidia-smi` 명령을 사용할 수 있어야 함)
+- (선택) OpenAI API 키 — Cloud 비교(STEP7)를 재현할 때만 필요
 
-## 8. 최종 모델 선정과 발표
-- 비교한 로컬 후보 중 Use Case에 가장 적합한 모델 1개를 선정합니다.
-- 호출 성공 수/전체 시도 수, 지표별 집계 응답 수(n), 대표 실패 사례를 선정 근거에 반영합니다.
-- Cloud가 더 높은 품질을 보였더라도 Cloud 결과, 로컬 선정 이유, 실제 서비스의 운영 방식 권고를 분리해 설명합니다.
+## 설치
 
+```bash
+uv sync
+```
 
-# [프로젝트 전체 프로세스]
-**문제 정의 → 요구사항 정의 → 모델 탐색 → 실행 환경 확인 → 평가 질문 확정 → 로컬 비교 실험 → 소규모 Cloud 비교 → 최종 모델 선정**
+Cloud 비교를 재현하려면 프로젝트 루트에 `.env` 파일을 만듭니다 (git에 커밋되지 않음):
 
-## STEP 1. 문제 정의
-모델을 선택하기 전에 해결할 문제를 정의합니다.
-예시)
-- 어떤 사용자가 사용하는가?
-- 어떤 종류의 질문에 답해야 하는가?
-- 한국어 성능, 데이터 보안, 응답 속도 중 무엇이 중요한가?
-- 사용 가능한 GPU 환경은 어느 정도인가?
+```
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-5.6-luna
+```
 
+## 실행 순서
 
-## STEP 2. 모델 요구사항 정의
-- **필수 통과 조건:** 수업용 노트북에서의 실행 가능 여부, Use Case에 맞는 License, 입력·출력 길이 수용 여부, 태스크에 필요한 최소 품질과 확인 방법
-- **확인할 정보** : language, model size, lincense, context length, gpu, task 등
-- **선호 우선순위:** 필수 조건을 충족한 후보 사이에서 품질, 전체 응답 시간, 메모리 사용량 등의 우선순위와 판정 기준
-- **확정 시점:** STEP 5에서 질문과 품질 채점 기준을 구체화하고 본 실험 전에 확정
+파이프라인은 반드시 순서대로 실행해야 하며, **3번과 5번 사이에 사람이 직접 채점하는 단계**가 끼어 있어 전체를 한 번에 자동 실행할 수 없습니다.
 
-
-## STEP 3. 후보 모델 탐색
-서로 다른 로컬 모델 2개를 필수 후보로 선정합니다. 동일 모델의 양자화 버전 2개만 비교하는 것은 이 요건을 대신하지 않습니다. Cloud 모델 1개는 별도의 비교 기준이며 로컬 후보 수에 포함하지 않습니다. Model Card와 License 원문 링크, 후보 선정 이유, 실제 실행 태그와 식별값을 직접 기록합니다.
-
-
-## STEP 4. 모델 실행 환경 확인과 Python 연결
-- 질문 한 개를 넣어 응답을 확인하고 결과 한 건을 JSON/CSV/JSONL 등 다시 읽을 수 있는 파일로 저장합니다.
-- CLI 대화 성공과 Python 호출 성공을 각각 확인합니다.
-- Python/Ollama/주요 패키지 버전, GPU/VRAM, 실행 설정, 오류 증상과 확인 내용을 기록합니다.
-- 기본 실험은 모델을 한 번에 하나씩 실행하고 같은 PC에서 두 후보를 비교합니다.
-
-
-## STEP 5. 평가 질문과 품질 기준 확정
-- Use Case에 맞는 **고정 질문 10개**를 만들고 모든 로컬 후보에 동일하게 적용합니다.
-- 질문마다 ID, 입력 자료, 기대 결과 또는 확인할 항목을 기록합니다.
-- 정상 사례, 경계 사례, 정보 부족·범위 밖 사례를 포함합니다.
-- 정확성, 핵심 정보 누락, 지시·형식 준수, 한국어 표현, 정보 부족 시 대응 등 태스크에 맞는 채점 기준과 점수 근거를 사전에 정합니다.
-- 동일한 질문·지시문·대화 이력 처리·출력 한도·생성 설정을 적용하고, 차이가 있으면 명시합니다.
-- Cloud 비교 질문 5개도 결과를 보기 전에 이 세트에서 선정합니다.
-
-
-## STEP 6. 로컬 모델 품질·성능 측정
-**로컬 모델 2개 × 질문 10개 × 질문별 2회 = 모델당 본 실험 20회**를 수행합니다. 모델당 워밍업 1회는 본 비교 집계에서 분리합니다.
-
-### Quality
-- 원본 응답을 STEP 5의 동일 기준으로 평가합니다.
-- 평균 점수, 대표 성공·실패 사례, 점수의 근거가 되는 응답 부분을 남깁니다.
-- 호출 실패는 품질 점수와 별도로 기록하고 성공 응답으로 대체하지 않습니다.
-
-### Performance
-- 전체 응답 시간: `elapsed` 초
-- 모델 로딩 시간: `response.load_duration / 1,000,000,000` 초
-- 토큰 생성 속도: `eval_count / (eval_duration / 1,000,000,000)` tokens/s
-- VRAM: `client.ps()`의 해당 모델 `size_vram` 바이트를 MiB로 변환
-- 실행 조건: 모델 태그, `digest`, `details.quantization_level`, 실제 `context_length`, 출력 한도·생성 설정, CPU/GPU 적재 상태
-
-통계 필드가 없거나 `eval_duration`이 0 이하이면 생성 속도를 계산하지 않고 사유를 기록합니다. 측정 불가 값을 0으로 채우지 않습니다.
-
-### 집계 원칙
-- 호출 성공 수 / 전체 시도 수를 모델별로 표시합니다.
-- 품질 점수와 각 성능 지표의 평균 옆에 계산에 사용한 응답 수(n)를 표시합니다.
-- 워밍업, 재시도, 추가 실험은 본 실험과 별도로 기록합니다.
-- 첫 실행의 로딩 지연과 로드된 상태의 응답 지연을 구분합니다.
-- tokens/s만으로 품질이나 사용자 체감 속도를 판단하지 않습니다.
-- 첫 토큰 지연을 별도로 측정하지 않았다면 전체 응답 시간을 TTFT로 표기하지 않습니다.
-
-
-## STEP 7. Open-source LLM vs Cloud API 비교
-Cloud API 모델 1개에 STEP 5에서 미리 정한 공통 질문 5개를 각각 1회 적용합니다. 로컬 모델은 동일 질문을 2회 수행하므로 반복 수 차이를 표시하고, 로컬의 좋은 결과 한 건만 골라 비교하지 않습니다.
-- quality, latency, cost, security, infrastructure/operations, customization
-- 응답, 성공·오류 상태, 입력, 출력 토큰, 전체 응답 시간, 예상 비용을 기록합니다.
-- API 키는 코드·저장소·실험 로그·스크린샷에 포함하지 않습니다. 공개·가상 데이터만 사용합니다.
-- 추정 비용과 OpenAI API 사용량의 실제 사용 내역을 구분합니다.
-- 실측 결과와 서비스 요구사항에 따른 운영 조건 분석을 구분합니다.
-
-
-## STEP 8. 최종 모델 선정과 발표
-- 비교한 로컬 후보 중 Use Case에 가장 적합한 모델 1개를 선정합니다.
-- STEP 2의 필수 통과 조건을 먼저 확인하고, 충족한 후보에 선호 우선순위를 적용합니다.
-- 호출 성공 수/전체 시도 수, 지표별 집계 응답 수(n), 대표 실패 사례를 선정 근거에 반영합니다.
-- Cloud가 더 높은 품질을 보였더라도 Cloud 결과, 로컬 선정 이유, 실제 서비스의 운영 방식 권고를 분리해 설명합니다.
-- 두 로컬 후보 모두 핵심 요구사항을 충족하지 못하면 상대적으로 적합한 후보와 실제 도입 가능 여부를 구분합니다.
-
-
-
-# [documents 구성]
-Doc ID | type | 평가 목표 및 특징
-DOC-01 | NORMAL | "쉬운 1, 2, 3 구조화 문서 요약"
-DOC-02 | NORMAL | 4개 항목을 3줄로 압축하는 능력
-DOC-03 | NORMAL | 보통 난이도의 서술형 공지문 요약
-DOC-04 | TOOL_SINGLE | 보안 지침 요약 + Slack 툴 1개
-DOC-05 | TOOL_SINGLE | 장애 보고서 요약 + Jira 툴 1개
-DOC-06 | TOOL_SINGLE | 점검 일정 요약 + Calendar 툴 1개
-DOC-07 | TOOL_MULTI | 회의록 요약 + Slack + Jira (Multi-Tool 2개)
-DOC-08 | TOOL_SINGLE | 복잡한 규정 + Slack 툴 1개 
-DOC-09 | UNCERTAIN | 고난도 환각 트랩(과거 수치 vs 미정) 감지 (is_uncertain=True)
-DOC-10 | OUT_OF_BOUNDS | 사내 업무 범위 밖 일반 질문 거절/예외 처리
-
-
-# [프로젝트 진행 기록]
-> 위 `[프로젝트 개요]`/`[프로젝트 전체 프로세스]`는 과제 명세이며, 아래는 그 STEP에 맞춰 실제로 진행한 내용을 기록한 것입니다.
-
-## STEP 1. 문제 정의 (실제 작성)
-- **사용자:** 사내 임직원(비개발/개발 직군 포함)이 사내 공지·보고서·회의록 등 한국어 문서를 조회하고 요약을 요청하는 상황을 가정
-- **질문 유형:** (1) 일반 문서 요약, (2) 요약 후 슬랙 알림/지라 티켓/캘린더 등록 등 후속 업무 툴 호출, (3) 문서에 미확정 정보만 있는 경우 불확실성 명시, (4) 사내 문서 범위를 벗어난 질문에 대한 거절
-- **중요 우선순위:**
-  1. 한국어 품질 — 모든 사내 문서와 질문이 한국어이므로 한국어 이해·생성 품질이 최우선
-  2. 데이터 보안 — 사내 문서(보안 지침, 장애 보고서 등 민감 정보 포함)를 외부 Cloud API로 보내지 않아도 되는 로컬 실행이 기본 운영 방식으로 바람직함
-  3. 응답 속도 — 요약 후 즉시 알림을 보내는 흐름이므로 수 초 내 응답이 필요 (일반 응답 4~7초 수준까지는 허용)
-- **GPU 환경:** 수업용 노트북의 단일 GPU 기준, 실측 VRAM 점유량은 7~8B Q4_K_M 양자화 모델 1개당 약 4.5~5GB 수준(`results/model_metadata_table.md` 참고)이며, 두 모델을 동시에 로드하면 VRAM 부족으로 먼저 로드된 모델이 자동 언로드되는 것을 확인함 → 로컬 실험은 모델을 한 번에 하나씩 순차 실행하는 방식으로 진행 (README STEP4 지침과 일치)
-
-## STEP 2. 모델 요구사항 정의 (실제 작성)
-- **필수 통과 조건**
-  - 실행 가능 여부: Ollama로 노트북 단일 GPU에서 정상 구동되는 7~8B급 모델 (Q4_K_M 양자화)
-  - License: 사내 활용에 법적 제약이 없는 라이선스 (Apache 2.0, Llama 3.1 Community License 등)
-  - 입력·출력 길이 수용 여부: 사내 문서(약 500~1,200자) + 시스템 프롬프트 + 질문을 충분히 수용
-  - 최소 품질: `quality_score` 같은 단일 합산 점수에 임의의 컷라인을 긋지 않고, 아래 3개 항목별 조건으로 판정 (합산 점수는 ROUGE 등 구조적으로 1.0에 도달하기 어려운 지표가 섞여 있어 절대 기준으로 부적합하다고 판단함)
-    1. 호출 성공률 100% (`call_success` 기준, `results/raw_benchmark.csv`)
-    2. Pydantic 스키마 준수율 100% (`pydantic_valid` 기준)
-    3. human_eval 치명적 환각(`err_hallucination`) 발생률 10% 미만 (`data/human_eval.csv` 기준)
-- **확인할 정보 (실측)**
-
-  | 항목 | qwen2.5:7b | llama3.1:8b |
-  |---|---|---|
-  | License | Apache License | LLAMA 3.1 Community License |
-  | Parameter Size | 7.6B | 8.0B |
-  | Quantization | Q4_K_M | Q4_K_M |
-  | 모델 최대 지원 Context Length | 32,768 | 131,072 |
-  | **실제 런타임 로드 Context Window** | **4,096 (기본값)** | **4,096 (기본값)** |
-  | VRAM 실사용량 (로드 시) | 4528.1 MiB | 5027.5 MiB |
-
-  > ⚠️ **주의(실험 중 발견한 사항):** 두 모델 모두 GGUF가 지원하는 최대 컨텍스트는 수만~10만 토큰 이상이지만, Ollama가 `num_ctx`를 별도 지정하지 않고 로드할 경우 **실제 런타임 컨텍스트 윈도우는 기본값인 4,096 토큰**으로 동작함을 `client.ps()`로 확인함. 현재 실험 문서들은 짧아 문제가 되지 않지만, 더 긴 문서를 다루려면 `options={"num_ctx": N}`을 명시적으로 지정해야 함 — STEP2의 "입력·출력 길이 수용 여부" 판단 시 이 실측값 기준으로 재검토 필요.
-  > (참고: `scripts/01_metadata_check.py`가 애초에 `info.get("model_info", ...)`로 잘못된 키를 조회해 Context Length가 항상 하드코딩된 추정치만 기록되던 버그를 발견해 `modelinfo`로 수정하고 재수집함.)
-
-- **선호 우선순위:** ① Quality(`data/rubrics.json` 종합 `quality_score` — 카테고리, 키워드 매칭, Kiwi ROUGE-1·2, human_eval 감점, 불릿 형식, 툴 호출 정확도, 불확실성 판단을 문서 유형별로 가중 합산) > ② 응답 시간(elapsed_sec) > ③ VRAM 사용량 — Use Case상 정확도가 속도보다 중요하다고 판단
-- **확정 시점:** STEP5에서 고정 질문 10개와 `data/rubrics.json` 채점 기준을 확정한 시점에 위 기준도 함께 확정함. 이후 인간 검증(human_eval) 도입 및 ROUGE 비중 조정 등 rubric을 개선하면서 최종 확정 (자세한 변경 이력은 `rubrics.md` 참고)
-
-## STEP 3. 후보 모델 탐색 (실제 작성)
-- **선정 후보:** `qwen2.5:7b` (Alibaba, Apache 2.0), `llama3.1:8b` (Meta, Llama 3.1 Community License) — 서로 다른 아키텍처(Qwen2 vs Llama)를 사용하는 별도 모델로, 동일 모델의 양자화 버전 비교가 아님
-- **선정 이유:**
-  - 둘 다 다국어(한국어 포함) 성능을 공식 지원하며 Ollama 공식 라이브러리에 정식 태그로 등록되어 재현성 확보가 쉬움
-  - 7~8B 파라미터대라 수업용 노트북 GPU(VRAM 실측 4.5~5GB/모델) 안에서 단일 모델 기준 여유 있게 구동 가능
-  - Qwen2.5는 중국어권 모델 중 한국어 가독성이 상대적으로 좋다고 알려져 있고, Llama3.1은 커뮤니티 자료·벤치마크가 풍부해 비교 기준으로 삼기 적합
-- **Model Card / License 원문:**
-  - Qwen2.5-7B-Instruct: https://huggingface.co/Qwen/Qwen2.5-7B-Instruct
-  - Llama-3.1-8B-Instruct: https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct
-- **실행 태그/식별값:** `results/metadata.json`, `results/model_metadata_table.md`에 태그명, digest 대응 quantization_level, 실측 context length·VRAM을 기록
-
-## STEP 8. 최종 모델 선정과 발표 (실제 작성)
-
-### STEP2 필수 통과 조건 확인
-로컬 모델 2개 × 질문 10개 × 2회 = 모델당 20회 본실험(워밍업 별도) 완료, human_eval도 DOC-10을 제외한 18건씩 전부 채점 완료.
-
-| 조건 | qwen2.5:7b | llama3.1:8b | 판정 |
+| 순서 | 명령어 | 설명 | 산출물 |
 |---|---|---|---|
-| ① 호출 성공률 100% | 20/20 (100%) | 20/20 (100%) | 둘 다 통과 |
-| ② Pydantic 스키마 준수율 100% | 20/20 (100%) | 20/20 (100%) | 둘 다 통과 |
-| ③ err_hallucination 발생률 10% 미만 | 0/18 (0%) | 1/18 (5.6%) | 둘 다 통과 |
+| 1 | `uv run python scripts/00_env_check.py` | CLI(`ollama run`)·Python SDK 양쪽 호출 확인, GPU 정보 기록 | `results/env_check.json` |
+| 2 | `uv run python scripts/01_metadata_check.py` | 모델 메타데이터(라이선스, 파라미터 크기, 컨텍스트 길이 등) 수집 | `results/metadata.json`, `results/model_metadata_table.md` |
+| 3 | `uv run python scripts/02_run_benchmark.py` | 로컬 2개 모델 × 문서 10개 × 2회 + Cloud 1개 모델 × 문서 5개 × 1회 실행 | `results/raw_benchmark.csv`, `results/raw_benchmark_cloud.csv` |
+| **4** | **`data/human_eval.csv` 직접 채점** | 각 응답의 raw_response를 읽고 환각/사실오류/언어오류/가독성을 `err_*` 컬럼에 1(발생)/0(없음)으로 기록 | — |
+| 5 | `uv run python scripts/03_evaluation.py` | `data/rubrics.json` 채점 기준 + 4번의 사람 채점을 반영해 최종 점수 산출 | `results/evaluation_scores.csv`, `results/evaluation_scores_cloud.csv` |
 
-두 후보 모두 필수 조건을 통과하여, 아래 선호 우선순위로 선정합니다.
+- 로컬만 다시 실행: `uv run python scripts/02_run_benchmark.py --local-only`
+- Cloud만 다시 실행(실제 과금 발생): `uv run python scripts/02_run_benchmark.py --cloud-only`
+- 로컬 생성은 `temperature=0, seed=42`로 고정되어 있어 같은 프롬프트·설정이면 재실행해도 응답이 동일합니다. 즉 3번만 다시 돌려서 새 필드를 추가하는 경우, 4번(사람 채점)을 다시 할 필요는 없습니다.
 
-### 선호 우선순위 비교 (① Quality > ② 응답 시간 > ③ VRAM)
+## 프로젝트 구조
 
-| 항목 | qwen2.5:7b | llama3.1:8b | 우위 |
-|---|---|---|---|
-| 종합 Quality Score (n=20, human_eval 반영) | **0.712** | 0.6624 | qwen |
-| 카테고리 점수 (n=18) | 0.5926 | **0.7408** | llama |
-| Kiwi ROUGE-1,2 Mean (n=18) | **0.4095** | 0.3829 | qwen |
-| 평균 응답 시간 | 4.09초 | **3.27초** | llama (단, 둘 다 STEP1의 허용 범위 4~7초 이내) |
-| VRAM 사용량 | **4528.1 MiB** | 5027.5 MiB | qwen |
-| 평균 생성 속도 | 66.2 tok/s | 63.18 tok/s | qwen |
+```
+.
+├── README.md                  # 이 파일 — 결과 요약 + 실행 방법
+├── assignment.md               # 과제 스펙 원문 (참고용)
+├── results.md                  # STEP별 실제 진행 기록 + 최종 선정 근거 (상세 서술)
+├── rubrics.md                  # 채점 기준 설계 문서 (사람이 읽는 설명, 변경 이력 포함)
+├── configs/
+│   ├── prompt_templates.py    # 시스템/유저 프롬프트, 거절 문구 등 공용 상수
+│   └── schemas.py             # 응답 Pydantic 스키마 (SummaryResponse), 툴 JSON 스키마
+├── data/
+│   ├── documents.json         # 평가용 문서 10개 + Ground Truth
+│   ├── rubrics.json           # 채점 가중치 설정 (코드가 실제로 읽는 파일)
+│   └── human_eval.csv         # 사람이 직접 채점하는 감점 체크리스트
+├── scripts/
+│   ├── 00_env_check.py        # STEP4: 실행 환경 확인 (CLI + Python 호출)
+│   ├── 01_metadata_check.py   # STEP3: 모델 후보 메타데이터 조사
+│   ├── 02_run_benchmark.py    # STEP6/7: 로컬 + Cloud 벤치마크 실행
+│   └── 03_evaluation.py       # rubric 기반 채점 + 리포트 출력
+└── results/                   # 각 스크립트 실행 시 갱신되는 산출물 (원본 데이터)
+```
 
-1순위 지표인 Quality Score에서 qwen2.5:7b가 우위이므로 **qwen2.5:7b를 최종 로컬 모델로 선정**합니다. 응답 시간은 llama3.1:8b가 다소 빠르지만 두 모델 모두 STEP1에서 정한 허용 범위(4~7초) 안이라 우선순위 판정에 영향을 주지 않으며, VRAM도 qwen이 더 가벼워 1순위 판정과 상충하지 않습니다.
+## 평가 방법 요약
 
-### 대표 실패 사례
-- **qwen2.5:7b**: DOC-01에서 "둘째 이상 출산 축하금 100만 원" 조건을 누락/오기 (human_eval 수치 오류 -25점), DOC-05에서 Jira 티켓 인자(`issue_type`, `summary`)에 중국어 텍스트가 섞여 출력됨 (언어 오출력 -25점).
-- **llama3.1:8b**: DOC-09(환각 트랩 문서)에서 미확정 안건을 확정된 사실처럼 단정적으로 서술하고 인원 추가 계획을 축소로 잘못 기술 (환각 -40점, 수치 오류 -25점).
-- **공통 실패 — DOC-10(질문-문서 완전 불일치)**: 문서와 전혀 무관한 질문(Python GIL 설명 요청)에 대해 두 모델 다 정해진 거절 절차를 제대로 따르지 못함. qwen은 `is_uncertain=true`는 맞혔으나 정해진 거절 문구 대신 무관한 문서를 요약해버렸고, llama는 `is_uncertain=false`로 두고 질문을 무시한 채 문서를 3줄 요약함. 두 모델 다 이 케이스에서 quality_score 0.5(is_uncertain 판정만 부분 반영)에 그침 — 로컬 모델 도입 시 "질문-문서 완전 불일치" 케이스에 대한 별도 안전장치(예: 사전 관련성 필터)가 필요하다는 운영 시사점으로 기록.
+- **문서 10종**: 일반 요약(3) · 툴 호출(5, 단일/다중) · 환각 트랩(1) · 범위 밖 질문 거절(1) — 전체 목록은 [results.md의 평가 문서 구성](results.md)
+- **자동 채점**: 카테고리 정확도(단일 라벨 완전 일치 / 다중 라벨 F1), 필수 키워드 Recall, Kiwi 형태소 기반 ROUGE-1·2, 불릿 3개 형식 준수, 툴 이름·인자 일치도
+- **사람 채점(human_eval)**: 환각·사실 오류·언어 오출력·가독성 4개 항목을 응답 전체(요약 + 툴 호출 인자 포함)에서 체크해 감점
+- 각 문서 유형(NORMAL/TOOL_CALLING/UNCERTAIN/OUT_OF_BOUNDS)별 가중치 배분 등 상세 설계는 [rubrics.md](rubrics.md) 참고
 
-### STEP7 Cloud API(gpt-5.6-luna) 비교 결과와 최종 운영 권고
-- 공통 질문 5개(DOC-01, 04, 07, 09, 10) 각 1회 실행 결과: 호출 성공 5/5, human_eval 채점 완료 4/4(DOC-10 제외), 종합 Quality Score **0.8845**로 로컬 두 모델보다 높음. DOC-10 거절 문구도 유일하게 정확히 재현함.
-- **단, 동일 조건 비교가 아닙니다.** gpt-5.6-luna는 `temperature` 커스텀 값을 지원하지 않아 로컬(0, 결정론적)과 달리 기본값(1)으로 호출되었고, `reasoning effort=none` 등 로컬에는 없는 생성 설정이 적용됩니다. 따라서 이 품질 격차를 "Cloud 모델이 절대적으로 더 우수하다"로 단순 해석하지 않습니다.
-- **최종 운영 권고:** Cloud가 정량 지표상 더 높은 품질을 보였음에도, STEP1에서 정한 최우선 순위(사내 민감 문서를 외부로 전송하지 않는 로컬 실행)에 따라 **실제 운영 모델은 qwen2.5:7b(로컬)로 선정**합니다. Cloud API는 비용이 매우 낮고(5건 합산 약 $0.002) 품질도 우수하므로, 로컬 모델이 처리하지 못하는 고난도 케이스(예: DOC-10류 질문-문서 완전 불일치)에 한해 보조적으로 활용하는 하이브리드 운영을 검토 사항으로 남깁니다.
+## 알려진 한계
+
+- ROUGE-1,2는 패러프레이징에 취약해 내용이 같아도 표현이 다르면 낮게 나올 수 있습니다. 절대값이 아니라 두 로컬 모델 간 상대 비교 용도로만 해석합니다.
+- Ollama는 `num_ctx`를 명시하지 않으면 런타임 컨텍스트 윈도우가 기본값 4096으로 동작합니다 (모델이 지원하는 최대 컨텍스트와 다름).
+- Cloud 모델(`gpt-5.6-luna`)은 `temperature` 커스텀 값을 지원하지 않아 로컬(0, 결정론적)과 다른 조건(기본값)으로 호출되며, `reasoning effort` 등 로컬에 없는 설정도 적용됩니다. Cloud 비교 결과는 이 차이를 감안해서 해석해야 합니다.
+- Cloud API의 예상 비용(`est_cost_usd`)은 코드로 계산한 추정치이며, OpenAI 대시보드의 실제 사용 내역과는 별도로 확인이 필요합니다.
+
+## 더 읽어보기
+
+- [assignment.md](assignment.md) — 과제 스펙 원문
+- [results.md](results.md) — STEP별 실제 진행 기록, 최종 선정 근거, 대표 실패 사례
+- [rubrics.md](rubrics.md) — 채점 기준 설계와 변경 이력
