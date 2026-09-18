@@ -28,7 +28,7 @@ class SummaryResponse(BaseModel):
         ..., 
         min_items=1,
         max_items=3,
-        description=f"본문 내용을 바탕으로 작성한 3줄 불릿포인트 요약 목록 (질문과 상관없는 문서이거나 정보가 없으면 ['{REFUSAL_TEMPLATE}'] 1줄만 작성.)"
+        description=f"본문 내용을 바탕으로 작성한 3줄 불릿포인트 요약 목록 (질문과 상관없는 문서면 ['{REFUSAL_TEMPLATE}'] 1줄만 작성.)"
     )
     categories: List[CategoryType] = Field(
         ...,
@@ -145,3 +145,38 @@ BENCHMARK_TOOLS = [
     JIRA_TOOL_SCHEMA,
     CALENDAR_TOOL_SCHEMA
 ]
+
+# ==========================================
+# 3. Native Tool Calling 실험용 스키마 (scripts/04_toolcalling_local.py, 05_toolcalling_cloud.py 전용)
+# ==========================================
+# 그래이드 파이프라인(SummaryResponse)은 tool_calls를 응답 필드로 함께 강제하는 "시뮬레이션" 방식이라
+# tool_calls를 포함하지만, native tool calling은 Turn A(실제 tools= 호출)가 tool_calls를 이미 담당하므로
+# Turn B 최종 응답 스키마(FinalAnswerSchema)에는 tool_calls를 넣지 않는다. 과제 채점과는 무관한 개인 실험용.
+
+class FinalAnswerSchema(BaseModel):
+    """native tool calling Turn B(최종 응답) 전용 스키마"""
+    summary_bullets: List[str] = Field(
+        ...,
+        min_items=1,
+        max_items=3,
+        description=f"본문 내용을 바탕으로 작성한 3줄 불릿포인트 요약 목록 (질문과 상관없는 문서면 ['{REFUSAL_TEMPLATE}'] 1줄만 작성.)"
+    )
+    categories: List[CategoryType] = Field(
+        ...,
+        min_items=1,
+        max_items=2,
+        description="문서 내용과 가장 관련 깊은 카테고리 1~2개 선택 (예: ['개발', '보안'])"
+    )
+    is_uncertain: bool = Field(
+        ...,
+        description="본문 내용이 확정되지 않은 안/논의 단계이거나, 사용자 질문이 문서 내용과 전혀 무관한 경우 반드시 True로 설정"
+    )
+
+FINAL_ANSWER_JSON_SCHEMA = FinalAnswerSchema.model_json_schema()
+
+
+class ToolNeedSchema(BaseModel):
+    """라우팅 게이트 전용 스키마 — "tool이 필요한 상황인가"만 판단"""
+    tool_needed: bool
+
+TOOL_NEED_JSON_SCHEMA = ToolNeedSchema.model_json_schema()

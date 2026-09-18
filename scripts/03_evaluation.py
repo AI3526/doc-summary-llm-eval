@@ -1,6 +1,7 @@
 import csv
 import json
 import os
+from collections import Counter
 from pathlib import Path
 
 from rouge_score import rouge_scorer
@@ -189,6 +190,26 @@ def score_summary_bullets(
     return round(raw, 4), detail
 
 
+def calculate_tool_name_score(expected_tool_names: list[str], actual_tool_names: list[str]) -> float:
+    """호출된 tool 이름이 기대한 tool과 '개수'까지 정확히 일치하는지 precision/recall/F1로 채점.
+    (기존에는 set()으로 비교해 중복 호출을 걸러내지 못했음 — 예: jira를 3번 불러도 통과되던 문제)
+    중복 호출·불필요한 tool 호출은 precision을, 누락은 recall을 낮춰 감점된다."""
+    if not expected_tool_names and not actual_tool_names:
+        return 1.0
+    if not actual_tool_names or not expected_tool_names:
+        return 0.0
+
+    expected_counts = Counter(expected_tool_names)
+    actual_counts = Counter(actual_tool_names)
+    correct = sum(min(expected_counts[name], actual_counts[name]) for name in expected_counts)
+
+    precision = correct / len(actual_tool_names)
+    recall = correct / len(expected_tool_names)
+    if precision + recall == 0:
+        return 0.0
+    return round(2 * precision * recall / (precision + recall), 4)
+
+
 def score_tool_calls(
     is_parsed: bool, parsed_res: SummaryResponse | None, gt: dict, sub_weights: dict
 ) -> tuple[float, dict]:
@@ -196,20 +217,19 @@ def score_tool_calls(
     gt_tools = gt.get("expected_tool_calls", [])
     has_tools = bool(is_parsed and parsed_res and parsed_res.tool_calls)
 
+    gt_tool_names = [t.get("tool_name") for t in gt_tools]
+    llm_tool_names = [tc.tool_name for tc in parsed_res.tool_calls] if has_tools else []
+    tool_name_score = calculate_tool_name_score(gt_tool_names, llm_tool_names)
+
     if not gt_tools:
-        name_match = not has_tools
         args_ratio = 1.0 if not has_tools else 0.0
-        detail = {"tool_name_match": name_match, "tool_args_ratio": args_ratio}
-        raw = (1.0 if name_match else 0.0) * sub_weights["tool_name"] + args_ratio * sub_weights["tool_args"]
+        detail = {"tool_name_score": tool_name_score, "tool_args_ratio": args_ratio}
+        raw = tool_name_score * sub_weights["tool_name"] + args_ratio * sub_weights["tool_args"]
         return round(raw, 4), detail
 
     if not has_tools:
-        detail = {"tool_name_match": False, "tool_args_ratio": 0.0}
+        detail = {"tool_name_score": tool_name_score, "tool_args_ratio": 0.0}
         return 0.0, detail
-
-    gt_tool_names = [t.get("tool_name") for t in gt_tools]
-    llm_tool_names = [tc.tool_name for tc in parsed_res.tool_calls]
-    name_match = set(gt_tool_names) == set(llm_tool_names)
 
     # tool_name별 마지막 호출의 arguments를 기준으로 GT 인자값과 실제 일치 여부 비교
     llm_args_by_name = {tc.tool_name: (tc.arguments or {}) for tc in parsed_res.tool_calls}
@@ -230,8 +250,8 @@ def score_tool_calls(
     )
     args_ratio = matched / len(gt_tools)
 
-    detail = {"tool_name_match": name_match, "tool_args_ratio": round(args_ratio, 4)}
-    raw = (1.0 if name_match else 0.0) * sub_weights["tool_name"] + args_ratio * sub_weights["tool_args"]
+    detail = {"tool_name_score": tool_name_score, "tool_args_ratio": round(args_ratio, 4)}
+    raw = tool_name_score * sub_weights["tool_name"] + args_ratio * sub_weights["tool_args"]
     return round(raw, 4), detail
 
 

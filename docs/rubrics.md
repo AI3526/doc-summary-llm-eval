@@ -1,15 +1,16 @@
 # 1. 평가 구조 및 지표 조합
 전체 평가 구조는 정량적 자동 검증 항목과 정성적 요약 품질 항목으로 구성됩니다.
-
+```
 [전체 종합 점수 (100점 만점)]
  ├── Categories (문서 분류 F1 Score) - 자동
- ├── Tool Calls (함수명 및 인자 정확도) - 자동
+ ├── Tool Calls (함수명 및 인자 정확도, 중복·과다 호출 감점 포함) - 자동
  ├── Is Uncertain (환각 트랩/범위 초과 감지) - 자동
  └── Summary Bullets (요약 품질 필드)
       ├── 키워드 매칭 (Keyword Match) ────── 40%
       ├── Kiwi ROUGE-1,2 Mean ───────────── 10%
       ├── 불릿 3개 준수 (Bullet Count) ───── 20%
       └── 인간 평가 감점 (Human Eval) ────── 30% (감점 방식)
+```
 
 # 2. 요약 품질(summary_bullets) 세부 산출 로직
 요약 필드 내부 점수는 100점 만점으로 정규화된 4개 지표를 가중 합산하여 산출합니다.
@@ -58,5 +59,7 @@ qwen2.5:7b,DOC-05,1,0,0,1,0,Jira 인자(issue_type/summary)에 중국어 텍스�
 - 키워드 매칭: Recall (포섭 비율)
 - ROUGE-1, 2: F1-Score (기존 ROUGE-L과 동일)
 - 카테고리: 단일 ➔ Exact Match, 다중 ➔ F1-Score
-- Tool Name: Exact Match (Pass/Fail)
+- Tool Name: Multiset(Counter) 기반 Precision/Recall/F1-Score
 - Tool Args: Dict F1-Score (Key-Value 일치율)
+
+**Tool Name을 F1-Score로 바꾼 이유**: 기존에는 `set(GT tool 이름) == set(LLM tool 이름)`으로만 비교해서, 같은 tool을 여러 번 중복 호출하거나(예: create_jira_ticket을 3번 호출) 요청하지 않은 tool을 추가로 호출해도 "이름 집합"만 같으면 만점 처리되는 사각지대가 있었다. 실제로는 이런 중복/과다 호출도 명백한 오류(불필요한 알림 반복 발송, 원치 않는 티켓 중복 생성 등)이므로, `Counter`로 호출 횟수까지 비교해 정확히 일치한 개수만 정답으로 인정하는 방식으로 변경했다. 중복·과다 호출은 Precision을, 누락은 Recall을 낮춰 자연스럽게 감점되고, 완전히 정확한 1회씩의 호출만 만점(F1=1.0)을 받는다.
