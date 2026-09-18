@@ -1,6 +1,6 @@
 # Native Tool Calling 실험 기록
 
-`native_tool_call_test.py`(실험 1~3) / `native_tool_call_temperature_test.py`(실험 4) / `native_tool_call_split_turns_test.py`(실험 5, 이 3개는 일회성 탐색용 스크립트로 이후 정리 과정에서 삭제됨) / `scripts/04_toolcalling_local.py`(실험 6~9, 구 `ref1.py`) / `scripts/05_toolcalling_cloud.py`(실험 10, 구 `ref1_cloud.py`)로, Ollama의 `tools=` 파라미터 및 OpenAI Responses API의 `tools=` 파라미터(native tool calling)를 직접 사용했을 때 qwen2.5:7b / llama3.1:8b / gpt-5.6-luna가 어떻게 동작하는지 확인한 10차례 실험 기록입니다. 채점은 `scripts/06_toolcalling_evaluation.py`(구 `evaluate_native_results.py`)가 담당합니다.
+`native_tool_call_test.py`(실험 1~3) / `native_tool_call_temperature_test.py`(실험 4) / `native_tool_call_split_turns_test.py`(실험 5, 이 3개는 일회성 탐색용 스크립트로 이후 정리 과정에서 삭제됨) / `scripts/04_toolcalling_local.py`(실험 6~9, 구 `ref1.py`) / `scripts/05_toolcalling_cloud.py`(실험 10, 구 `ref1_cloud.py`)로, Ollama의 `tools=` 파라미터 및 OpenAI Responses API의 `tools=` 파라미터(native tool calling)를 직접 사용했을 때 qwen2.5:7b / llama3.1:8b / gpt-5.6-luna가 어떻게 동작하는지 확인한 12차례 실험 기록입니다. 채점은 `scripts/06_toolcalling_evaluation.py`(구 `evaluate_native_results.py`)가 담당합니다.
 
 > 이 스크립트는 `temperature`/`seed`를 고정하지 않아 실행마다 결과가 달라질 수 있습니다 (메인 파이프라인 `02_run_benchmark.py`는 `temperature=0, seed=42`로 고정되어 있는 것과 다릅니다). 아래 실행 간 차이는 이 비결정성을 반영합니다.
 
@@ -198,7 +198,7 @@
 
 `scripts/04_toolcalling_local.py`는 각 모델의 첫 실행 문서(DOC-01)에 모델 로딩 등 콜드스타트 비용이 섞여 있어(메인 파이프라인은 이를 피하려 별도 워밍업 1회를 미리 실행한 뒤 본 실험을 측정함), DOC-01을 워밍업격으로 제외하고 DOC-02~10 평균(9개 문서)을 사용했습니다. 메인 파이프라인 쪽은 DOC-01~10, MAIN_1+MAIN_2(문서당 2회 반복) 전체 평균입니다.
 
-| 지표 | qwen 기존(단일턴) | qwen native(3턴) | llama 기존(단일턴) | llama native(3턴) |
+| 지표 | qwen 기존(단일턴) | qwen native(2~3턴*) | llama 기존(단일턴) | llama native(2~3턴*) |
 |---|---|---|---|---|
 | elapsed_sec | 4.303 | **5.811** (+35%) | 3.494 | **3.369** (오히려 -4%) |
 | load_sec | 0.0045 | 0.0097 | 0.0044 | 0.0101 |
@@ -207,9 +207,11 @@
 | prompt_tokens | 1468.8 | **2487.9** (+69%) | 1364.0 | **2093.9** (+53%) |
 | completion_tokens | 256.0 | **329.0** (+29%) | 192.5 | 181.0 (오히려 -6%) |
 
+\* native는 문서마다 호출 횟수가 다릅니다 — 라우팅 게이트는 항상 호출되고, Turn A(실제 tool 호출)는 `tool_needed=True`인 문서(DOC-04~08, 5개)에서만 추가로 호출되므로 실제로는 **tool 불필요 문서 2턴(라우팅+Turn B) / tool 필요 문서 3턴(라우팅+Turn A+Turn B)이 섞인 평균**입니다.
+
 - **eval_tps(순수 토큰 생성 속도)는 두 방식 다 거의 동일합니다.** 턴을 나눈다고 모델의 토큰당 생성 속도 자체가 바뀌지는 않습니다.
 - **prompt_tokens는 두 모델 다 크게 늘었습니다(53~69%).** 라우팅 게이트 프롬프트 + 턴A의 `BENCHMARK_TOOLS` 스키마 전체 + 턴B에서 앞선 대화 히스토리(문서 재포함 + tool 실행 결과)를 매번 다시 인코딩해야 하니 당연한 증가입니다.
-- **그런데 elapsed_sec은 예상과 다르게 qwen만 크게 늘고(+35%) llama는 오히려 소폭 줄었습니다(-4%).** prompt_tokens가 아니라 completion_tokens의 증감이 elapsed_sec을 좌우하는 것으로 보입니다 — GPU에서 prefill(프롬프트 처리)은 decode(토큰 생성)보다 훨씬 빠르므로, prompt가 크게 늘어도 wall-clock에 미치는 영향은 작고, 실제 체감 지연은 "몇 토큰을 새로 생성하느냐"가 지배적입니다. qwen은 completion_tokens도 29% 늘어서(턴을 나누며 결과를 다시 서술하는 과정에서 텍스트가 길어짐) elapsed_sec이 같이 늘었고, llama는 completion_tokens가 오히려 6% 줄어서(3턴으로 나뉘며 각 턴의 출력이 짧아짐) elapsed_sec도 소폭 줄었습니다.
+- **그런데 elapsed_sec은 예상과 다르게 qwen만 크게 늘고(+35%) llama는 오히려 소폭 줄었습니다(-4%).** prompt_tokens가 아니라 completion_tokens의 증감이 elapsed_sec을 좌우하는 것으로 보입니다 — GPU에서 prefill(프롬프트 처리)은 decode(토큰 생성)보다 훨씬 빠르므로, prompt가 크게 늘어도 wall-clock에 미치는 영향은 작고, 실제 체감 지연은 "몇 토큰을 새로 생성하느냐"가 지배적입니다. qwen은 completion_tokens도 29% 늘어서(턴을 나누며 결과를 다시 서술하는 과정에서 텍스트가 길어짐) elapsed_sec이 같이 늘었고, llama는 completion_tokens가 오히려 6% 줄어서(여러 턴으로 나뉘며 각 턴의 출력이 짧아짐) elapsed_sec도 소폭 줄었습니다.
 - 결론적으로 "턴을 2~3번 나누면 무조건 느려진다"는 예상은 절반만 맞습니다 — **API 호출 횟수(라운드트립)가 늘어도, 각 라운드마다 생성하는 토큰 수가 적으면 지연시간 증가는 제한적**이라는 게 이번 측정에서 드러난 흥미로운 지점입니다. vram/load_sec은 모델 자체가 동일하게 상주해서 변화가 없습니다.
 
 ## 실험 10 — OpenAI Responses API(gpt-5.6-luna)로 native tool calling 재현 + 3파전 비교
@@ -230,9 +232,61 @@
 | tool_name F1 (중복/과다 호출 감점) | 0.8 | 0.8 | **1.0** |
 | category_score (n=9) | 0.5926 | **0.8333** | 0.7593 |
 | is_uncertain 정답률 (n=10) | **1.0** | 0.8 | 0.9 |
+| quality_score (종합 품질 점수, n=10) | 0.7343 | 0.6938 | **0.8531** |
 
 - **tool_name F1은 gpt-5.6-luna만 만점(1.0)** — 로컬 두 모델이 각각 겪던 "불필요한 추가 호출"(qwen: DOC-04/06/08)이나 "라우팅 실패로 인한 누락"(llama: DOC-04)이 클라우드 모델에서는 전혀 나타나지 않았습니다. 지금까지 실험 6~8에서 확인한 "tool-calling eagerness"(불필요해도 일단 써보려는 경향)가 로컬 오픈소스 모델에 더 두드러진 문제일 가능성을 시사합니다.
 - 다만 **tool_calls 종합 점수(0.82)는 tool_name이 만점인데도 qwen(0.86)보다 낮습니다** — `tool_args_ratio`(GT 인자값과의 일치도)가 상대적으로 낮았던 것으로 보이며, tool 이름을 정확히 고르는 것과 인자를 정확히 채우는 것은 서로 다른 능력임을 보여줍니다.
 - **category_score는 llama(0.8333) > gpt-5.6-luna(0.7593) > qwen(0.5926)** 순으로, 다중 카테고리 문서에서 qwen이 1개만 예측하는 경향은 클라우드 모델을 붙여봐도 여전히 로컬 파이프라인 전반에서 관찰된 패턴과 일치합니다.
 - **is_uncertain은 qwen만 유일하게 만점**이고, gpt-5.6-luna는 DOC-06(확정된 정기 점검 일정인데 "완료 시간이 30분 내외 변동될 수 있다"는 문구를 근거로 과잉 신중하게 True 판단)에서 유일하게 오답을 냈습니다.
 - **종합적으로 "네이티브 tool calling의 가장 큰 약점이었던 중복/과다 호출"은 클라우드 모델에서는 해소되지만, 완전한 상위호환은 아닙니다** — 모델별로 인자 정확도, 카테고리 판단, is_uncertain 판단 등 서로 다른 지점에서 실패가 남아 있어, "클라우드 모델이면 native tool calling이 무조건 안전하다"는 결론으로 이어지지는 않습니다.
+- **quality_score(gpt-5.6-luna 0.8531 > qwen 0.7343 > llama 0.6938)는 메인 파이프라인의 최종 순위와 동일**해, native tool calling 방식으로 재현해도 세 모델 간 상대적 우열 관계 자체는 바뀌지 않는다는 것을 보여줍니다. `data/toolcalling_human_eval.csv`를 실제로 채점해보니 llama의 DOC-09 응답에서 미확정 안건("논의 중")을 단정적으로 서술한 환각(-40점)과 인력 투입 방향(추가→축소)을 반대로 오기한 수치 오류(-25점)가 발견되어 llama에만 실질적인 human_eval 감점이 반영됐습니다.
+
+## 실험 11 — 단일턴(메인 파이프라인) vs 다중턴(native tool calling) 성능 비교 3파전 확장 (openai 포함)
+
+실험 9에서는 qwen/llama 로컬 두 모델만 비교했는데, 실험 10에서 gpt-5.6-luna까지 native tool calling을 붙여봤으니 **성능(elapsed_sec, load_sec, eval_tps, vram_mib, prompt_tokens, completion_tokens) 비교도 세 모델로 확장**했습니다. `results/raw_benchmark.csv`/`raw_benchmark_cloud.csv`(단일턴)와 `results/toolcalling_results.csv`/`toolcalling_cloud_results.csv`(다중턴)를 같은 기준으로 평균 냈습니다.
+
+**⚠️ 표본 구성이 서로 달라 엄밀한 A/B 비교는 아니고, 경향 참고용입니다.**
+
+| 지표 | 단일턴(qwen) | 다중턴(qwen) | 단일턴(llama) | 다중턴(llama) | 단일턴(openai) | 다중턴(openai) |
+|---|---|---|---|---|---|---|
+| **n (표본 수)** | **20** | **9** | **20** | **9** | **5** | **10** |
+| elapsed_sec | 4.30 | **6.34** | 3.49 | 3.54 | 2.72 | **4.11** |
+| load_sec | 0.0045 | 0.0104 | 0.0044 | 0.0089 | 0.0 | 0.0 |
+| eval_tps | 62.93 | 62.18 | 62.81 | 63.92 | 63.24 | 55.79 |
+| vram_mib | 4528.1 | 4528.1 | 5027.5 | 5027.5 | N/A (Cloud) | N/A (Cloud) |
+| prompt_tokens | 1468.8 | **2535.4** | 1364.0 | **2124.0** | 2405.8 | **2907.1** |
+| completion_tokens | 256.0 | **355.4** | 192.5 | 189.9 | 180.8 | **230.3** |
+
+**표본 수 관련 유의사항 (반드시 감안하고 읽을 것)**:
+- 단일턴 로컬(qwen/llama)은 웜업 제외 문서 10개 × 2회 = **정확히 20건**씩 비교 가능한 표본입니다.
+- 다중턴 로컬(qwen/llama)은 문서별 워밍업을 따로 두지 않아 각 모델의 첫 실행 문서(DOC-01)에 콜드스타트 비용이 섞여 있어 제외했고, 반복도 1회뿐이라 **9건**밖에 안 됩니다 — 20건 대비 **표본이 훨씬 적어 참고용으로만** 봐야 합니다.
+- 단일턴 openai는 **문서 5개 1회씩(5건, DOC-01/04/07/09/10만 대상)**, 다중턴 openai는 **문서 10개 1회씩(10건)**이라 표본 수와 문서 구성 자체가 다릅니다. 이 역시 **정확한 1:1 비교가 아니라 경향성 참고용**입니다.
+
+**경향 분석**:
+- **eval_tps(순수 토큰 생성 속도)는 세 모델 다 단일턴/다중턴 간 큰 차이가 없습니다.** 턴을 나눈다고 모델의 토큰당 생성 속도 자체가 바뀌지는 않습니다.
+- **prompt_tokens는 세 모델 다 다중턴에서 크게 늘어납니다** (qwen **+73%**, llama **+56%**, openai **+21%**). 라우팅 프롬프트 + tool 스키마 + 대화 히스토리 누적이 원인입니다.
+- **elapsed_sec 증가폭은 모델마다 다릅니다** — qwen(**+47%**)과 openai(**+51%**)는 completion_tokens도 함께 늘어(qwen **+39%**, openai **+27%**) 지연시간이 같이 늘었지만, llama는 completion_tokens가 거의 그대로라 elapsed_sec 증가폭이 작습니다(**+1%**). GPU/API에서 prefill(프롬프트 처리)보다 decode(토큰 생성)가 지연시간을 더 좌우하기 때문으로 보입니다.
+- 즉 "턴을 나누면 무조건 느려진다"보다는, **다중턴 구조에서 실제로 몇 토큰을 더 생성하게 되는지가 지연시간 증가폭을 결정한다**는 게 로컬 두 모델과 클라우드 모델까지 포함해 공통으로 관찰된 패턴입니다.
+
+## 실험 12 — gpt-5.6-luna만 요약 불릿에 tool 실행 결과 확인 문구를 끼워 넣는 현상 발견
+
+`results/toolcalling_results.csv`/`results/toolcalling_cloud_results.csv`의 `raw_response`를 살펴보다가, **gpt-5.6-luna(Cloud)의 요약(`summary_bullets`)에만 "슬랙 발송 완료", "티켓 생성됨", "캘린더 등록 완료" 같은 tool 실행 결과 확인 문구가 섞여 들어가 있는 것**을 발견했습니다. 실제로 tool을 호출한 문서(DOC-04~08) 전체를 코드로 검사해보니:
+
+| 모델 | tool 실행 결과 확인 문구가 섞인 문서 수 |
+|---|---|
+| qwen2.5:7b | **0/5** |
+| llama3.1:8b | **0/5** |
+| gpt-5.6-luna | **5/5 (전부)** |
+
+예시 (DOC-07, gpt-5.6-luna 세 번째 불릿):
+> "전사 보안 알림은 #sec-notice로 HIGH 긴급도 발송 완료되었고, SEC 프로젝트에 긴급 버그 티켓이 Highest 우선순위로 생성되었습니다."
+
+반면 같은 문서에 대한 qwen/llama의 세 번째 불릿은 순수하게 문서 내용(향후 조치 필요성)만 담고 있고, tool 실행 여부에 대한 언급이 전혀 없습니다.
+
+**원인 추정**: `scripts/04_toolcalling_local.py`/`05_toolcalling_cloud.py`의 Turn B 요청 문구가 "위 문서와 **처리 결과**를 바탕으로 요약(summary_bullets)... 을 JSON으로 정리해줘"로 되어 있어, 애초에 "문서 내용"뿐 아니라 "tool 실행 처리 결과"까지 요약에 반영하라고 **모호하게** 지시하고 있습니다. qwen/llama는 이 지시를 사실상 무시하고 "문서 요약"에만 집중한 반면, gpt-5.6-luna는 지시를 더 문자 그대로 따라 tool 실행 결과까지 요약에 포함시킨 것으로 보입니다. 즉 모델이 이상하게 답한 게 아니라 **우리 Turn B 프롬프트가 애매하게 지시한 결과**로 해석하는 게 더 합당합니다.
+
+**영향**:
+- GT `summary_bullets`(순수 문서 내용만 담음)와의 ROUGE 중복률에 다소 불리하게 작용할 수 있습니다. 실제로 gpt-5.6-luna의 DOC-04/05/07 `rouge_1_2_mean`은 **0.35~0.45**로, 파괴적인 수준은 아니지만 불릿 하나의 "문서 내용 밀도"가 tool 완료 확인 문장으로 대체되며 줄어드는 효과는 있어 보입니다.
+- `data/toolcalling_human_eval.csv`로 사람이 채점할 때도 애매한 지점이 생깁니다 — 이 문구를 "불필요한 내용 포함(가독성/과제 이탈 감점 대상)"으로 볼지, "실제로 발생한 사실이니 문제없음"으로 볼지 평가 기준이 필요합니다.
+
+**후속 검토 사항 (미결정)**: Turn B 지시문에서 "처리 결과를 바탕으로"라는 표현을 빼고 "문서 내용만을 기반으로 요약하라"로 재작성하면 이 현상이 사라지는지 재확인해볼 가치가 있습니다. 다만 지금까지의 프롬프트 튜닝 경험(실험 6→7→8, whac-a-mole 패턴)에 비추어 보면, 이 문구를 고치는 것이 다른 곳(예: is_uncertain 판단, tool 인자 정확도)에 의도치 않은 영향을 줄 가능성도 배제할 수 없어 신중하게 접근할 필요가 있습니다.

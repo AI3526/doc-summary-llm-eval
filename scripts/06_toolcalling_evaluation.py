@@ -2,10 +2,10 @@
 채점 로직으로 그대로 채점하는 스크립트. (개인적 네이티브 툴 콜링 실험용 — 과제 채점 파이프라인과는 무관)
 
 파일명이 숫자로 시작하는 scripts/03_evaluation.py는 `import`가 불가능해 importlib로 로드한다.
-human_eval.csv에는 이 실험의 (model, doc_id, rep_id) 조합이 없으므로 summary_bullets의
-human_eval 서브항목은 항상 미채점 처리되고, quality_score(종합 점수)는 공란이 된다.
-대신 human_eval에 의존하지 않는 tool_calls 점수(신규 Counter 기반 F1 — 중복/과다 호출 감점 포함)와
-category_score, is_uncertain 조건 점수는 그대로 계산되어 출력된다.
+data/toolcalling_human_eval.csv(qwen/llama/gpt-5.6-luna 각 10문서, rep_id=1 고정)를 사람이 채점해두면
+quality_score(종합 점수)까지 계산된다. 아직 채점 전이거나 해당 (model, doc_id) 조합이 없으면
+summary_bullets가 unscored 처리되어 quality_score는 공란이 되고, tool_calls_score/category_score/
+is_uncertain_score처럼 human_eval에 의존하지 않는 지표만 채워진다.
 """
 import csv
 import importlib.util
@@ -23,6 +23,8 @@ CLOUD_INPUT_CSV_PATH = "results/toolcalling_cloud_results.csv"
 CLOUD_OUTPUT_CSV_PATH = "results/toolcalling_cloud_evaluation.csv"
 DOCUMENTS_PATH = "data/documents.json"
 RUBRICS_PATH = "data/rubrics.json"
+HUMAN_EVAL_PATH = "data/toolcalling_human_eval.csv"
+REP_ID = 1  # 이 실험은 문서당 1회씩만 실행해 반복 회차 구분이 없음
 
 
 def _avg(rows: list[dict], field: str) -> tuple[float | None, int]:
@@ -30,7 +32,9 @@ def _avg(rows: list[dict], field: str) -> tuple[float | None, int]:
     return (round(sum(vals) / len(vals), 4), len(vals)) if vals else (None, 0)
 
 
-def run_evaluation(input_csv_path: str, output_csv_path: str, report_title: str) -> None:
+def run_evaluation(
+    input_csv_path: str, output_csv_path: str, report_title: str, human_eval_map: dict
+) -> None:
     if not Path(input_csv_path).exists():
         print(f"❌ 평가 대상 파일이 없습니다: {input_csv_path}")
         return
@@ -64,9 +68,9 @@ def run_evaluation(input_csv_path: str, output_csv_path: str, report_title: str)
             evaluated_records.append(record)
             continue
 
-        # human_eval 없이 채점 (summary_bullets의 human_eval 서브항목은 항상 unscored)
+        human_eval_row = human_eval_map.get((row["model_name"], doc_id, REP_ID))
         eval_res = evaluation_lib.evaluate_single_run(
-            row["raw_response"], doc_id, doc_info, rubrics, human_eval_row=None
+            row["raw_response"], doc_id, doc_info, rubrics, human_eval_row=human_eval_row
         )
         breakdown = json.loads(eval_res["detail_scores"])
         tool_detail = breakdown.get("tool_calls", {})
@@ -116,6 +120,9 @@ def run_evaluation(input_csv_path: str, output_csv_path: str, report_title: str)
         if avg_uncertain is not None:
             print(f"  - is_uncertain 정답률: {avg_uncertain} (n={n_uncertain}, DOC-04~09 대상)")
 
+        avg_quality, n_quality = _avg(all_rows, "quality_score")
+        print(f"  - 종합 품질 점수(quality_score): {avg_quality} (n={n_quality}/{len(all_rows)}, human_eval 미채점 문서는 집계 제외)")
+
         low_name_rows = [r for r in tool_rows if r["tool_name_score"] != "" and float(r["tool_name_score"]) < 1.0]
         if low_name_rows:
             print("  - tool_name_score < 1.0 (중복/누락/과다 호출) 문서:")
@@ -135,13 +142,14 @@ def run_evaluation(input_csv_path: str, output_csv_path: str, report_title: str)
 def main():
     run_local = "--cloud-only" not in sys.argv
     run_cloud = "--local-only" not in sys.argv
+    human_eval_map = evaluation_lib.load_human_eval_map(HUMAN_EVAL_PATH)
 
     if run_local:
-        run_evaluation(LOCAL_INPUT_CSV_PATH, LOCAL_OUTPUT_CSV_PATH, "로컬(qwen/llama)")
+        run_evaluation(LOCAL_INPUT_CSV_PATH, LOCAL_OUTPUT_CSV_PATH, "로컬(qwen/llama)", human_eval_map)
     if run_cloud:
         if run_local:
             print()
-        run_evaluation(CLOUD_INPUT_CSV_PATH, CLOUD_OUTPUT_CSV_PATH, "Cloud(gpt-5.6-luna)")
+        run_evaluation(CLOUD_INPUT_CSV_PATH, CLOUD_OUTPUT_CSV_PATH, "Cloud(gpt-5.6-luna)", human_eval_map)
 
 
 if __name__ == "__main__":
