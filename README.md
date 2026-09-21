@@ -131,3 +131,4 @@ qwen/llama/openai 3파전 채점 비교(tool_calls 점수, category_score, is_un
 - [docs/results.md](docs/results.md) — STEP별 실제 진행 기록, 최종 선정 근거, 대표 실패 사례
 - [docs/rubrics.md](docs/rubrics.md) — 채점 기준 설계와 변경 이력
 - [docs/toolcalling_experiment.md](docs/toolcalling_experiment.md) — Native Tool Calling 실험 전체 기록 (개인 탐구, 과제와 무관)
+- [RETROSPECTIVE.md](RETROSPECTIVE.md) — 프로젝트 전체 회고: 모델 선정, 평가 지표, 코드/개발 프로세스, 캐싱·서빙 아키텍처 관련 문제점과 개선 방안
